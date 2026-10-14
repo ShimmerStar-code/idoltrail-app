@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="15px" height="15px" viewBox="0 0 15 15" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组</title>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linejoin="round">
+        <g id="活动详情" transform="translate(-34.000000, -537.000000)" stroke="#333333">
+            <g id="编组-4" transform="translate(15.000000, 440.000000)">
+                <g id="概率备份-12" transform="translate(10.000000, 90.000000)">
+                    <g id="编组" transform="translate(10.000000, 8.000000)">
+                        <path d="M6.66666667,13.3333333 C10.3485667,13.3333333 13.3333333,10.3485667 13.3333333,6.66666667 C13.3333333,2.98476667 10.3485667,0 6.66666667,0 C2.98476667,0 0,2.98476667 0,6.66666667 C0,10.3485667 2.98476667,13.3333333 6.66666667,13.3333333 Z" id="路径"></path>
+                        <polyline id="路径" stroke-linecap="round" points="6.66946667 2.6667 6.66906667 6.66963333 9.49553333 9.4961"></polyline>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

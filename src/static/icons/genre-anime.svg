@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 27</title>
+    <defs>
+        <path d="M27,18 C27.5522847,18 28,18.4477153 28,19 C28,22.603 24.922,25.519 20.998,25.946 C20.9996167,25.9639522 21.0002843,25.9819773 21,26 L21,29 L25,29 C25.5522847,29 26,29.4477153 26,30 C26,30.5522847 25.5522847,31 25,31 L15,31 C14.4477153,31 14,30.5522847 14,30 C14,29.4477153 14.4477153,29 15,29 L19,29 L19,26 L19.003,25.946 C15.08,25.52 12,22.603 12,19 C12,18.4477153 12.4477153,18 13,18 C13.5522847,18 14,18.4477153 14,19 C14,21.724 16.655,24 20,24 C23.345,24 26,21.724 26,19 C26,18.4477153 26.4477153,18 27,18 Z M20,9 C22.7614237,9 25,11.2385763 25,14 L25,18 C25,20.7614237 22.7614237,23 20,23 C17.2385763,23 15,20.7614237 15,18 L15,14 C15,11.2385763 17.2385763,9 20,9 Z M20,11 C18.3431458,11 17,12.3431458 17,14 L17,18 C17,19.6568542 18.3431458,21 20,21 C21.6568542,21 23,19.6568542 23,18 L23,14 C23,12.3431458 21.6568542,11 20,11 Z" id="path-1"></path>
+        <filter x="-43.8%" y="-22.7%" width="187.5%" height="163.6%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="2" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.654901961   0 0 0 0 0.88627451   0 0 0 0 0.635294118  0 0 0 0.3 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-308.000000, -657.000000)">
+            <g id="更多活动" transform="translate(15.000000, 506.000000)">
+                <g id="1备份-6" transform="translate(189.000000, 136.000000)">
+                    <g id="编组-27" transform="translate(104.000000, 15.000000)">
+                        <rect id="矩形" fill="#FFFFFF" x="0" y="0" width="40" height="40" rx="20"></rect>
+                        <g id="形状" fill-rule="nonzero">
+                            <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                            <use fill="#A7E2A2" xlink:href="#path-1"></use>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

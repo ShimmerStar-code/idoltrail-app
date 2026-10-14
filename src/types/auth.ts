@@ -1,0 +1,121 @@
+// 与后端 /auth/* /user/* 响应对齐
+export interface User {
+  id: number
+  nickname: string
+  avatar_url: string
+  gender: 0 | 1 | 2
+  status: 1 | 2 | 3 | 4
+  register_source: string
+  register_at: string
+  last_login_at?: string
+  last_login_ip?: string
+  agreement_version?: string
+  // profile 扩展字段（GET /user/me 返回）
+  phone?: string
+  email?: string
+  wechat_id?: string
+  birthday?: string       // "YYYY-MM-DD"
+  nationality?: string
+  bio?: string
+  star_coins?: number
+  contribution?: number
+}
+
+export interface AuthTokens {
+  access_token: string
+  refresh_token: string
+  access_expires_in: number
+  refresh_expires_in: number
+}
+
+/** 设备类型：App 端只有 iOS / Android */
+export type DeviceType = 'ios' | 'android'
+
+export interface PhoneLoginRequest {
+  phone: string
+  code: string
+  nickname?: string
+  avatar_url?: string
+  gender?: 0 | 1 | 2
+  device_id?: string
+  device_type?: DeviceType | string
+  device_model?: string
+  os_version?: string
+  app_version?: string
+}
+
+export interface PhoneLoginResponse extends AuthTokens {
+  user: User
+  is_new: boolean
+  agreement_required: boolean
+  missing_agreements?: string[]
+}
+
+/** POST /auth/apple-login 请求（Sign in with Apple） */
+export interface AppleLoginRequest {
+  /** uni.login({provider:'apple'}) 返回的一次性 authorization code */
+  code: string
+  /**
+ * 客户端生成的随机串，用于防重放；服务端与 id_token.nonce 比对。
+ *
+ * 当前请勿传值：uni.login 无法把 nonce 注入 Apple 授权请求，
+ * 传随机值会导致服务端判定重放攻击而登录失败。服务端对空值跳过比对。
+ */
+  nonce?: string
+  nickname?: string
+  avatar_url?: string
+  gender?: 0 | 1 | 2
+  device_id?: string
+  device_type?: DeviceType | string
+  device_model?: string
+  os_version?: string
+  app_version?: string
+}
+
+/**
+ * POST /auth/apple-login 响应
+ *
+ * 字段与手机号登录一致，便于 store 复用同一套写 token 的逻辑。
+ */
+export interface AppleLoginResponse extends AuthTokens {
+  user: User
+  /** 本次是否为 Apple 身份首次绑定（新账号或绑定到已有账号） */
+  is_new: boolean
+  agreement_required: boolean
+  missing_agreements?: string[]
+}
+
+export interface SendSmsResult {
+  /** 验证码有效期（秒） */
+  expires_in: number
+  /** 距下次可重发的秒数 */
+  retry_after: number
+}
+
+export interface Device {
+  id: number
+  user_id: number
+  device_id: string
+  device_type: string
+  device_model: string
+  os_version: string
+  app_version: string
+  last_active_at: string
+  is_current: boolean
+  push_token?: string
+  push_platform?: string
+  push_provider?: string
+}
+
+export interface LoginLog {
+  id: number
+  user_id?: number
+  actor_type: 'user' | 'admin'
+  type: string
+  success: boolean
+  ip: string
+  device_id: string
+  ua: string
+  fail_reason: string
+  created_at: string
+}

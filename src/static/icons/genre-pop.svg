@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 26</title>
+    <defs>
+        <path d="M30,28 C30,29.6568542 28.6568542,31 27,31 C25.3431458,31 24,29.6568542 24,28 L24,25 C23.999814,24.0259945 24.4724968,23.112521 25.2677153,22.5501027 C26.0629338,21.9876845 27.0816988,21.8463315 28,22.171 L28,20 C27.9983981,15.6316093 24.4928741,12.0721753 20.1250165,12.0039105 C15.757159,11.9356456 12.1421141,15.3837929 12.004,19.75 L12,20 L12,22.17 C12.9184677,21.8452725 13.9374242,21.9867385 14.7326932,22.5493913 C15.5279621,23.1120441 16.0005108,24.025818 16,25 L16,28 C16,29.6568542 14.6568542,31 13,31 C11.3431458,31 10,29.6568542 10,28 L10,20 C10,14.477 14.477,10 20,10 C25.43,10 29.848,14.327 29.996,19.72 L30,20 L30,28 Z M13,24 C12.4477153,24 12,24.4477153 12,25 L12,28 C12,28.5522847 12.4477153,29 13,29 C13.5522847,29 14,28.5522847 14,28 L14,25 C14,24.4477153 13.5522847,24 13,24 Z M27,24 C26.4477153,24 26,24.4477153 26,25 L26,28 C26,28.5522847 26.4477153,29 27,29 C27.5522847,29 28,28.5522847 28,28 L28,25 C28,24.4477153 27.5522847,24 27,24 Z" id="path-1"></path>
+        <filter x="-35.0%" y="-23.8%" width="170.0%" height="166.7%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="2" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.964705882   0 0 0 0 0.741176471   0 0 0 0 0.654901961  0 0 0 0.3 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-308.000000, -742.000000)">
+            <g id="更多活动" transform="translate(15.000000, 506.000000)">
+                <g id="1备份-11" transform="translate(189.000000, 221.000000)">
+                    <g id="编组-26" transform="translate(104.000000, 15.000000)">
+                        <rect id="矩形" fill="#FFFFFF" x="0" y="0" width="40" height="40" rx="20"></rect>
+                        <g id="形状" fill-rule="nonzero">
+                            <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                            <use fill="#F6BDA7" xlink:href="#path-1"></use>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

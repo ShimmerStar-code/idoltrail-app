@@ -1,0 +1,205 @@
+{
+   "easycom": {
+      "autoscan": true,
+      "custom": {
+         "^uni-(.*)": "@dcloudio/uni-ui/lib/uni-$1/uni-$1.vue"
+      }
+   },
+   "pages": [
+      {
+         "path": "pages/home/index",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/artist/list",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/artist/detail",
+         "style": {
+            "navigationBarTitleText": "艺术家详情",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/artist/by-country",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom",
+            "enablePullDownRefresh": true
+         }
+      },
+      {
+         "path": "pages/subscribe/index",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/subscribe/artist-events",
+         "style": {
+            "navigationBarTitleText": "已关联的活动",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/subscribe/city-events",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/index",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/edit",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/account",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/settings",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/notifications",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/messages",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/about",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/type-guide",
+         "style": {
+            "navigationBarTitleText": "",
+            "navigationStyle": "custom"
+         }
+      },
+{
+         "path": "pages/profile/donate",
+         "style": {
+           "navigationBarTitleText": "",
+           "navigationStyle": "custom"
+         }
+      }
+   ],
+   "subPackages": [
+      {
+         "root": "pages/event",
+         "pages": [
+            {
+               "path": "list",
+               "style": {
+                  "navigationBarTitleText": "",
+                  "navigationStyle": "custom"
+               }
+            },
+            {
+               "path": "detail",
+               "style": {
+                  "navigationBarTitleText": "活动详情",
+                  "navigationStyle": "custom"
+               }
+            }
+         ]
+      },
+      {
+         "root": "pages/place",
+         "pages": [
+            {
+               "path": "detail",
+               "style": {
+                  "navigationBarTitleText": "场馆详情",
+                  "navigationStyle": "custom"
+               }
+            }
+         ]
+      },
+      {
+         "root": "pages/search",
+         "pages": [
+            {
+               "path": "index",
+               "style": {
+                  "navigationBarTitleText": "搜索"
+               }
+            }
+         ]
+      },
+      {
+         "root": "pages/agreement",
+         "pages": [
+            {
+               "path": "detail",
+               "style": {
+                  "navigationBarTitleText": "协议"
+               }
+            }
+         ]
+      },
+      {
+         "root": "pages/admin",
+         "pages": [
+            {
+               "path": "login",
+               "style": {
+                  "navigationBarTitleText": "Admin 登录"
+               }
+            },
+            {
+               "path": "users",
+               "style": {
+                  "navigationBarTitleText": "用户管理"
+               }
+            }
+         ]
+      }
+   ],
+   "globalStyle": {
+      "navigationBarTextStyle": "black",
+      "navigationBarTitleText": "idoltrail",
+      "navigationBarBackgroundColor": "#FFFFFF",
+      "backgroundColor": "#FFFFFF",
+      "app-plus": {
+         "bounce": "none",
+         "titleNView": false
+      }
+   }
+}

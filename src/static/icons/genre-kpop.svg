@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 20</title>
+    <defs>
+        <filter x="-50.0%" y="-43.9%" width="200.0%" height="187.8%" filterUnits="objectBoundingBox" id="filter-1">
+            <feOffset dx="0" dy="1" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="1.5" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.564705882   0 0 0 0 0.847058824   0 0 0 0 0.992156863  0 0 0 0.3 0" type="matrix" in="shadowBlurOuter1" result="shadowMatrixOuter1"></feColorMatrix>
+            <feMerge>
+                <feMergeNode in="shadowMatrixOuter1"></feMergeNode>
+                <feMergeNode in="SourceGraphic"></feMergeNode>
+            </feMerge>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-134.000000, -657.000000)">
+            <g id="更多活动" transform="translate(15.000000, 506.000000)">
+                <g id="1备份-8" transform="translate(15.000000, 136.000000)">
+                    <g id="编组-20" transform="translate(104.000000, 15.000000)">
+                        <rect id="矩形" fill="#FFFFFF" x="0" y="0" width="40" height="40" rx="20"></rect>
+                        <g id="编组" filter="url(#filter-1)" transform="translate(11.000000, 10.000000)" stroke="#90D8FD" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                            <circle id="椭圆形" cx="9" cy="9" r="2"></circle>
+                            <path d="M7.7619,14.52695 C8.38095,13.82435 9.61905,13.8243 10.2381,14.52695 C10.85715,15.2296 10.23815,19.6804 9.8254,20.14875 C9.4127,20.6171 8.5873,20.6171 8.1746,20.14875 C7.7619,19.6804 7.14285,15.22955 7.7619,14.52695 Z" id="路径"></path>
+                            <path d="M12.4834,13.2565 C13.71445,12.24785 14.5,10.71565 14.5,9 C14.5,5.96245 12.03755,3.5 9,3.5 C5.96245,3.5 3.5,5.96245 3.5,9 C3.5,10.71565 4.28555,12.24785 5.5166,13.2565" id="路径"></path>
+                            <path d="M12.9629,17.0828 C15.9464,15.61725 18,12.54845 18,9 C18,4.02945 13.97055,0 9,0 C4.02945,0 0,4.02945 0,9 C0,12.54845 2.0536,15.61725 5.0371,17.0828" id="路径"></path>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

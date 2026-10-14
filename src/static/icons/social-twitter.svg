@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="95px" height="95px" viewBox="0 0 95 95" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>搜索备份 3</title>
+    <defs>
+        <rect id="path-1" x="0" y="0" width="65" height="65" rx="32.5"></rect>
+        <filter x="-38.5%" y="-30.8%" width="176.9%" height="176.9%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="5" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="7.5" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feComposite in="shadowBlurOuter1" in2="SourceAlpha" operator="out" result="shadowBlurOuter1"></feComposite>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.05 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="艺术家-详情" transform="translate(-150.000000, -481.000000)">
+            <g id="编组-4" transform="translate(15.000000, 491.000000)">
+                <g id="搜索备份-3" transform="translate(150.000000, 0.000000)">
+                    <g id="矩形">
+                        <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                        <rect stroke="#ECECEC" stroke-width="1" stroke-linejoin="square" fill="#FFFFFF" fill-rule="evenodd" x="0.5" y="0.5" width="64" height="64" rx="32"></rect>
+                    </g>
+                    <path d="M41.1857348,18.4864688 C41.2003597,18.6833425 41.2003597,18.8802161 41.2003597,19.0770897 C41.2003597,25.0811731 36.5608919,32.001 28.0807008,32.001 C25.468469,32.001 23.0407358,31.2551302 21,29.9625142 C21.3712474,30.0041389 21.7278699,30.0187638 22.1137423,30.0187638 C24.2692273,30.0187638 26.2537135,29.3021437 27.8388275,28.0781522 C25.8115916,28.0354025 24.1128534,26.7281616 23.5267325,24.9281741 C23.8124805,24.9697988 24.0982285,24.9979236 24.3974764,24.9979236 C24.8114735,24.9979236 25.2254707,24.941674 25.611343,24.8437997 C23.4986076,24.4219276 21.9134937,22.5938153 21.9134937,20.3854557 L21.9134937,20.329206 C22.5277394,20.6667037 23.2409844,20.8770772 23.9981042,20.905202 C22.7561128,20.0895827 21.9427435,18.6979674 21.9427435,17.1218533 C21.9427435,16.2781092 22.1711169,15.5052395 22.5704891,14.8302442 C24.8407233,17.5864751 28.2528246,19.3864626 32.0789231,19.5833362 C32.0080486,19.2458386 31.9641739,18.894841 31.9641739,18.5427185 C31.9641739,16.0396108 34.0195346,14 36.5755168,14 C37.9030076,14 39.1022493,14.5478712 39.9448684,15.434365 C40.9866112,15.2374914 41.9867293,14.857244 42.8720981,14.3374977 C42.5289755,15.3927403 41.8011056,16.2781092 40.8448622,16.8406053 C41.7729808,16.742731 42.6718495,16.4884827 43.4998438,16.1374852 C42.8720981,17.0374789 42.0868536,17.8384733 41.1868598,18.4853439 L41.1868598,18.4853439 L41.1857348,18.4864688 Z" id="twitter" fill="#333333" fill-rule="nonzero"></path>
+                    <text id="Twitter" font-family="PingFangSC-Regular, PingFang SC" font-size="11" font-weight="normal" fill="#333333">
+                        <tspan x="14.07" y="47">Twitter</tspan>
+                    </text>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

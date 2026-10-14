@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="95px" height="95px" viewBox="0 0 95 95" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>搜索</title>
+    <defs>
+        <rect id="path-1" x="0" y="0" width="65" height="65" rx="32.5"></rect>
+        <filter x="-38.5%" y="-30.8%" width="176.9%" height="176.9%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="5" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="7.5" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feComposite in="shadowBlurOuter1" in2="SourceAlpha" operator="out" result="shadowBlurOuter1"></feComposite>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.05 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="艺术家-详情" transform="translate(0.000000, -481.000000)">
+            <g id="搜索" transform="translate(15.000000, 491.000000)">
+                <g id="矩形">
+                    <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                    <rect stroke="#ECECEC" stroke-width="1" stroke-linejoin="square" fill="#FFFFFF" fill-rule="evenodd" x="0.5" y="0.5" width="64" height="64" rx="32"></rect>
+                </g>
+                <text id="Facebook" font-family="PingFangSC-Regular, PingFang SC" font-size="11" font-weight="normal" fill="#333333">
+                    <tspan x="8.1125" y="47">Facebook</tspan>
+                </text>
+                <path d="M43,23 C43,27.991 39.343,32.128 34.562,32.879 L34.562,26 L37,26 L37.453,23 L34.562,23 L34.562,21.124 C34.562,20.333 34.949,19.562 36.192,19.562 L37.453,19.562 L37.453,17.195 C37.453,17.195 36.309,17 35.215,17 C32.931,17 31.438,18.291 31.438,20.797 L31.438,23 L29.019,23 L29.019,26 L31.438,26 L31.438,32.879 C26.657,32.129 23,27.992 23,23 C23,17.477 27.477,13 33,13 C38.523,13 43,17.477 43,23" id="facebook" fill="#333333" fill-rule="nonzero"></path>
+            </g>
+        </g>
+    </g>
+</svg>

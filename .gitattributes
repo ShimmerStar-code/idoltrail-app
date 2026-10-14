@@ -1,0 +1,33 @@
+# ============================================================
+#  统一换行符策略
+#
+#  Windows 上的 core.autocrlf 默认会把工作区写成 CRLF，而仓库里存 LF。
+#  混合开发（Windows / WSL 后端 / macOS）时，这会让 checkout 的一方
+#  看到整文件都被改动的假 diff。固定为 LF 入库、工作区也保持 LF，
+#  彻底消除跨平台的换行符噪声。
+# ============================================================
+
+# 默认：入库统一 LF，工作区检出 LF
+* text=auto eol=lf
+
+# Windows 批处理必须保留 CRLF，否则在 cmd 下无法执行
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制资源，禁止任何换行符转换与 diff 尝试
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.mp3 binary
+*.mp4 binary
+
+# Lock 文件按纯文本处理，保证跨平台 npm install 行为一致
+package-lock.json text eol=lf

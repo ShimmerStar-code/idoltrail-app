@@ -1,0 +1,135 @@
+{
+    "name" : "偶像轨迹",
+    "appid" : "__UNI__REPLACE_WITH_DCLOUD_APPID__",
+    "description" : "演唱会 / 音乐活动信息平台",
+    "versionName" : "1.0.0",
+    "versionCode" : "100",
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "nvueStyleCompiler" : "uni-app",
+        "compilerVersion" : 3,
+        "splashscreen" : {
+            "alwaysShowBeforeRender" : true,
+            "waiting" : true,
+            "autoclose" : true,
+            "delay" : 0
+        },
+        /* 需要的原生模块：推送、分享、相机。
+           刻意不声明 Geolocation：城市定位已改为服务端按来源 IP 推断
+           （见 src/utils/location.ts），不再调用 uni.getLocation，
+           因而不需要定位模块、不需要高德 key、也不需要申请定位权限。 */
+        "modules" : {
+            "Push" : {},
+            "Share" : {},
+            "Camera" : {}
+        },
+        /* 启动图：图标资源放在 src/static/ 下，云打包时在 manifest 可视化界面替换 */
+        "distribute" : {
+            "android" : {
+                "minSdkVersion" : 21,
+                "targetSdkVersion" : 34,
+                "abiFilters" : [ "armeabi-v7a", "arm64-v8a", "x86_64" ],
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
+                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>"
+                ],
+                "permissionExternalStorage" : {
+                    /* request:none 与下方 permissions 列表一致：本 App 不读写公共存储，
+                       图片缓存走应用私有目录，无需申请存储权限 */
+                    "request" : "none",
+                    "prompt" : "本应用不使用公共存储，无需授权"
+                },
+                "permissionPhoneState" : {
+                    /* 设备标识来自 src/utils/device.ts 的 plus.device.uuid，
+                       不是 IMEI / 手机号，因此**不申请** READ_PHONE_STATE。
+                       申请了反而会触发应用商店的隐私合规问询。 */
+                    "request" : "none",
+                    "prompt" : "本应用不读取手机状态，设备标识由系统 UUID 生成"
+                }
+            },
+            "ios" : {
+                "dSYMs" : false,
+                "idfa" : false,
+                "capabilities" : {
+                    "entitlements" : {
+                        "com.apple.developer.associated-domains" : [ ]
+                    }
+                },
+                /* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
+     本 App 未接入任何广告追踪（"idfa": false，代码中无 ATT 调用）。
+     声明 ATT 用途却不请求授权，是 App Store 审核的常见拒审点。
+
+     ⚠️ 同样刻意不声明 NSLocationWhenInUseUsageDescription：
+     城市定位已改为服务端按来源 IP 推断，不再调用 uni.getLocation。
+     不申请位置权限就不能声明用途文案，反之声明了却不申请同样会被审核挑刺。 */
+                "privacyDescription" : {
+                    "NSCameraUsageDescription" : "用于拍摄活动海报，便于上传到个人主页",
+                    "NSPhotoLibraryUsageDescription" : "用于从相册选择图片作为头像"
+                }
+            },
+            /* uni-push 2.0 的两个开关由**编译器**读取
+               （@dcloudio/uni-push/lib/uni.plugin.js → isEnableUniPushV2 / isUniPushOffline），
+               两者都正确，客户端才会走厂商离线通道：
+                 version:"2"  → 启用 uni-push 2.0
+                 offline:true  → 解析到 dist/uni-push.plus.es.js（厂商通道）
+
+               ⚠️ offline 必须为 true。默认的 dist/uni-push.es.js 走个推 GtPush
+               长连接（wss://wshzn.gepush.com），后台极易被系统杀死，
+               且 iOS 根本没有保活长推送的机制 —— iOS 只能靠 APNs。
+               下方 app-plus["uni-push"]["push-type"] 并非编译器读取的字段，
+               保留仅供云打包识别，两者缺一不可。 */
+            "sdkConfigs" : {
+                "push" : {
+                    "unipush" : {
+                        "version" : "2",
+                        "offline" : true
+                    }
+                }
+            },
+            /* 分享说明：src/utils/share.ts 走 plus.share.sendWithSystem 调起系统分享面板，
+               不依赖微信 / QQ / 微博 SDK，因此这里不需要任何 sdkConfigs 配置。
+               若日后要接三方内部分享，需在此填入各厂商 appid / appsecret。 */
+            "icons" : {
+                "android" : {
+                    "hdpi" : "src/static/logo.png"
+                }
+            },
+            "splashscreen" : {
+                "androidStyle" : "common",
+                "android" : {
+                    "hdpi" : "src/static/logo.png"
+                },
+                "iosStyle" : "common",
+                "ios" : {
+                    "iphone" : {
+                        "portrait-750x1334" : "src/static/logo.png"
+                    }
+                }
+            }
+        },
+        /* uni-push 2.0 厂商通道：需要 DCloud 后台为各厂商开通后填入，
+           缺失的厂商会导致该品牌设备收不到系统通知 */
+        "uni-push" : {
+            "push-type" : "unipush"
+        },
+        /* App 隐私弹窗：Android 上首次调用受限 API 时系统会自动叠加一层说明，
+           关闭后由前端 PrivacyPopup 自行处理 */
+        "safearea" : {
+            "bottom" : {
+                "offset" : "auto"
+            }
+        }
+    },
+    /* 快速应用：App 打包不支持 quickapp，此处仅占位，切勿误以为已启用 */
+    "quickapp" : {},
+    "uniStatistics" : {
+        "enable" : false
+    },
+    "vueVersion" : "3"
+}

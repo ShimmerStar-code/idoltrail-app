@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 23</title>
+    <defs>
+        <filter x="-65.0%" y="-89.5%" width="230.0%" height="280.7%" filterUnits="objectBoundingBox" id="filter-1">
+            <feOffset dx="0" dy="2" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.749019608   0 0 0 0 0.854901961   0 0 0 0 0.541176471  0 0 0 0.3 0" type="matrix" in="shadowBlurOuter1" result="shadowMatrixOuter1"></feColorMatrix>
+            <feMerge>
+                <feMergeNode in="shadowMatrixOuter1"></feMergeNode>
+                <feMergeNode in="SourceGraphic"></feMergeNode>
+            </feMerge>
+        </filter>
+    </defs>
+    <g id="视觉" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-134.000000, -912.000000)">
+            <g id="更多活动" transform="translate(15.000000, 506.000000)">
+                <g id="1备份-14" transform="translate(15.000000, 391.000000)">
+                    <g id="编组-23" transform="translate(104.000000, 15.000000)">
+                        <rect id="矩形" fill="#FFFFFF" x="0" y="0" width="40" height="40" rx="20"></rect>
+                        <g id="编组" filter="url(#filter-1)" transform="translate(10.000000, 13.000000)" stroke="#BFDA8A" stroke-linejoin="round" stroke-width="2">
+                            <path d="M0,1.25 C0,0.6977 0.447715,0.25 1,0.25 L3,0.25 L17,0.25 L19,0.25 C19.5523,0.25 20,0.6977 20,1.25 L20,13.25 C20,13.8023 19.5523,14.25 19,14.25 L1,14.25 C0.447715,14.25 0,13.8023 0,13.25 L0,1.25 Z" id="路径"></path>
+                            <path d="M5.13505,0.25 C4.2872,0.25 3.82405,1.23885 4.3668,1.8902 L5.20015,2.8902 C5.39015,3.1182 5.6716,3.25 5.96835,3.25 L10,3.25 L14.03165,3.25 C14.3284,3.25 14.60985,3.1182 14.79985,2.8902 L15.6332,1.8902 C16.17595,1.23885 15.7128,0.25 14.86495,0.25 L5.13505,0.25 Z" id="路径" stroke-linecap="round"></path>
+                            <polyline id="路径" stroke-linecap="round" points="1 0.25 1 0.25 3 0.25 17 0.25 19 0.25"></polyline>
+                            <path d="M14.5,10.75 C15.60455,10.75 16.5,9.85455 16.5,8.75 C16.5,7.64545 15.60455,6.75 14.5,6.75 C13.39545,6.75 12.5,7.64545 12.5,8.75 C12.5,9.85455 13.39545,10.75 14.5,10.75 Z" id="路径"></path>
+                            <path d="M5.5,10.75 C6.60455,10.75 7.5,9.85455 7.5,8.75 C7.5,7.64545 6.60455,6.75 5.5,6.75 C4.39545,6.75 3.5,7.64545 3.5,8.75 C3.5,9.85455 4.39545,10.75 5.5,10.75 Z" id="路径"></path>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>
