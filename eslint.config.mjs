@@ -14,6 +14,16 @@ export default [
       // pages.json 里 custom:true 要求存在此目录，由 pages.json + 各页面里的
       // 自研 <TabBar> 承担渲染，这里只是满足微信的目录约定，不是 TS/Vue 源码。
       'src/custom-tab-bar/**',
+
+      // DCloud 第三方插件源码目录。当前一个插件都没有（uni-push 由 manifest
+      // 内置注入、uni-id 未接入），但 HBuilderX 安装插件时会自动写进这里，
+      // 保留忽略以免将来装一个插件就刷出一堆假 error（它们是压缩后的第三方源码）。
+      'src/uni_modules/**',
+
+      // URL 化云函数跑在 uniCloud 的 CommonJS Node 环境里，
+      // require / exports / process / Buffer / uniCloud 都是合法的运行时全局，
+      // 用上面的浏览器 ESM 规则去 lint 会刷出一堆假 error。
+      'uniCloud-*/cloudfunctions/**',
     ],
   },
 

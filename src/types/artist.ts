@@ -10,6 +10,9 @@ export interface Artist {
   event_count?: number         // 关联活动场次(用于按地区页 "(N场)")
   subscriber_count?: number    // 订阅人数(用于按地区页排序)
   avatar_url?: string          // 部分后端实体会带,前端兼容
+  // 主题色 #RRGGBB，后台 Web 端配置；空/缺失表示未配置，
+  // 前端按 id 哈希从预设浅色板取（见 @/constants/artistTheme）
+  theme_color?: string
 }
 
 export interface ArtistWork {

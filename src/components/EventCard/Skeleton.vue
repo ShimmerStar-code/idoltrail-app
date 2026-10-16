@@ -33,11 +33,13 @@ import Skeleton from "@/components/Skeleton/index.vue"
 </script>
 
 <style scoped>
+/* 骨架底色取中性灰（resolveArtistTheme 在无艺人时的返回值），
+   避免加载完成瞬间从灰色跳到某个鲜艳的艺人主题色 */
 .event-card-skeleton {
   margin: 24rpx 30rpx 0;
   border-radius: 40rpx;
   padding: 20rpx 20rpx 0;
-  background: linear-gradient(180deg, rgba(210,215,220,1) 0%, rgba(220,225,230,1) 100%);
+  background: linear-gradient(180deg, rgba(228,229,233,1) 0%, rgba(238,239,242,1) 100%);
   overflow: hidden;
   box-sizing: border-box;
 }

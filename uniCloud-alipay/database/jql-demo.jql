@@ -1,0 +1,10 @@
+// HBuilderX 自动生成的 JQL 调试台，默认内容是官方模板示例。
+//
+// ⚠️ 本项目**不使用 uni-id**（账号体系自建，见 ../idoltrail-server-main），
+//    也不在客户端直连 uniCloud 数据库，下面示例查询的 uni-id-users 表并不存在。
+//    此文件仅作为 HBuilderX「JQL 查询」面板的占位内容保留，不要当成业务代码。
+//    文件名刻意用 ASCII（jql-demo.jql）：HBuilderX 会按文件名建索引，中文名
+//    在跨平台 / 脚本 / CI 场景下容易出编码问题。
+
+// 下面示例查询 uni-id-users 表的所有数据
+db.collection('uni-id-users').get();

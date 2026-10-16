@@ -1,0 +1,9 @@
+{
+  "memorySize": 256,
+  "timeout": 30,
+  "path": "/idoltrail/unipush-send",
+  "runtime": "Nodejs",
+  "trigger": {
+    "args": []
+  }
+}

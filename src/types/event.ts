@@ -46,7 +46,7 @@ export interface EventDetail extends Event {
   description: string
   official_url: string
   sessions: EventSession[]
-  artists: { artist_id?: string; artist_name: string; role_type: string; setlist_order: number; avatar_url?: string }[]
+  artists: { artist_id?: string; artist_name: string; role_type: string; setlist_order: number; avatar_url?: string; theme_color?: string }[]
   genres: { genre_code: string }[]
   /** 购票入口，App 上只展示 name，点击才用 url 跳出去 */
   tickets?: EventTicket[]

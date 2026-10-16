@@ -2,6 +2,8 @@ import { request } from '@/utils/request'
 import type {
   AppleLoginRequest,
   AppleLoginResponse,
+  OneKeyLoginRequest,
+  OneKeyLoginResponse,
   PhoneLoginRequest,
   PhoneLoginResponse,
   SendSmsResult,
@@ -49,6 +51,28 @@ export const authApi = {
       skipAuth: true,
       skipAuthRedirect: true,
       // 同上：错误要在登录框内直接告诉用户（如「该 Apple 账号已绑定其他用户」）
+      silent: true,
+    })
+  },
+
+  /**
+   * uni 一键登录（App 端本机号码免短信登录）
+   *
+   * 语义：手机号由服务端经 uniCloud 云函数换取，客户端只负责取一次性凭证。
+   * 换出的是**手机号账号**，与短信验证码登录共用 user_auths.identity_type='phone'，
+   * 因此两种方式登录的是同一个账号。
+   *
+   * 错误码（前端需分支处理，见 types/auth.ts）：
+   *   40027 服务端未开通 / 设备不支持 → 隐藏一键登录入口
+   *   40028 取号失败（token 过期、运营商网关异常）→ 提示改用短信验证码
+   */
+  oneKeyLogin(data: OneKeyLoginRequest): Promise<OneKeyLoginResponse> {
+    return request<OneKeyLoginResponse>('/auth/onekey-login', {
+      method: 'POST',
+      data,
+      skipAuth: true,
+      skipAuthRedirect: true,
+      // 同上：错误要在登录框内直接告诉用户，且不能引导用户重登
       silent: true,
     })
   },

@@ -39,9 +39,17 @@ export function getArtistAvatarSrc(artist?: {
   type?: string
   gender?: string
 }): string {
-  // 有真实自定义头像时才使用；若 avatar_url 恰好是某个默认占位图（后端 bug 写入了错误默认值），
-  // 则忽略它、按 type/gender 重新计算，确保 Group 类型不会显示 boy 头像
-  if (artist?.avatar_url && !DEFAULT_AVATAR_SET.has(artist.avatar_url)) {
+  if (artist?.avatar_url) {
+    // 非默认图：直接用
+    if (!DEFAULT_AVATAR_SET.has(artist.avatar_url)) return artist.avatar_url
+
+    // 是默认占位图。后端 ResolveAvatar 已按 type/gender 算出分类正确的 URL，
+    // 这里不该盲目丢弃——一旦丢弃而 type/gender 又没下发（例如老版本后端），
+    // 只能落到 getDefaultAvatarSrc() 的 boy 兜底，导致女艺人和组合全显示成男头像。
+    // 有 type/gender 时才重算（可顺带修正库里存的错误默认值），否则信任后端的值。
+    if (artist.type || artist.gender) {
+      return getDefaultAvatarSrc(artist.type, artist.gender)
+    }
     return artist.avatar_url
   }
 

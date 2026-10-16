@@ -307,7 +307,11 @@ const locating = ref(false);
 async function doLocate() {
   locating.value = true;
 
-  // 超时兜底：3s 内未完成则降级为北京（8s 体感太长，缩短后首屏更快）。
+  // 超时兜底：15s 内未完成则降级为北京。
+  // 坐标定位要串行经过「系统权限弹窗（用户思考时间不可控）→ 系统定位 → 服务端逆地理编码」，
+  // 3s 的旧预算只够 IP 定位用，改成坐标定位后必然每次都走兜底，坐标形同虚设。
+  // 真正卡住定位的三个环节各有自己的上限（权限由系统弹窗把控、定位 8s、
+  // 逆地理是一次带 7 天缓存的普通请求），这里的 15s 是覆盖它们的最后一道保险。
   // done 闸门必须存在：接口返回与兜底定时器谁先到不确定，两条路径都会写
   // currentCity/locating，不加闸门会出现「已定位成功又被兜底改回北京」。
   let done = false;
@@ -331,17 +335,18 @@ async function doLocate() {
     locating.value = false;
     if (activeRegion.value === 0) loadFeatured();
   };
-  const safeTimer = setTimeout(fallback, 3000);
+  const safeTimer = setTimeout(fallback, 15000);
 
   try {
-    // IP 粗定位：不申请系统定位权限，也没有「用户拒绝授权」这条失败路径
+    // 坐标定位优先（wgs84 系统定位 + 服务端天地图逆地理），失败时
+    // locateCity 内部自动降级到 IP 粗定位，两级都失败才会 reject 到这里。
     const city = await locateCity();
-    console.log("[Location] IP 定位结果:", city);
+    console.log("[Location] 城市定位结果:", city);
     settle(city);
   } catch (e) {
     // 静默降级：定位只是首屏的锦上添花，失败不该打断浏览，也不弹 toast 打扰用户。
     // 兜底到「北京」，用户可在城市选择器里改。
-    console.error("[Location] IP 定位失败:", e);
+    console.error("[Location] 城市定位失败:", e);
     fallback();
   }
 }

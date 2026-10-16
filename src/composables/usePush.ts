@@ -9,9 +9,11 @@
 //      onLaunch、onShow、登录成功三个时机都会调用，幂等 upsert。
 //   3. 通知点击跳转统一复用站内通知的路径约定：`/pages/event/detail?id=<relatedId>`。
 //   4. 通知 WebSocket 已下线，本文件是 App 端**唯一**的实时触达通道：
-//      后台由系统通知栏承接，前台由 receive / pushMessageReceived 回调回查 HTTP 接口。
+//      后台由系统通知栏承接，前台由 uni.onPushMessage 与 plus.push 的 receive
+//      两条回调回查 HTTP 接口（两者会同时触发，已加去重）。
 
 import { pushApi } from '@/api/push'
+import { PUSH_ENABLED } from '@/utils/env'
 import { getDeviceId, getPushPlatform } from '@/utils/device'
 import { useUserStore } from '@/stores/user'
 import { useNotificationStore } from '@/stores/notification'
@@ -21,10 +23,9 @@ import { useNotificationStore } from '@/stores/notification'
 // syncPushToken() 均只在函数体内被调用），因此 ESM 循环解析不会拿到未初始化的值。
 // 新增代码时请保持这个前提，不要把对方的调用提到模块顶层。
 
-/** 推送总开关。'false' / 未定义 → 全部走 no-op */
+/** 推送总开关，读取收口在 utils/env.ts。'false' / 未定义 → 全部走 no-op */
 function pushEnabled(): boolean {
-  const v = import.meta.env.VITE_PUSH_ENABLED
-  return v === 'true' || v === '1'
+  return PUSH_ENABLED
 }
 
 /** uni-push 插件是否真的装上了（装了才有这些 API） */
@@ -141,6 +142,85 @@ function handleClick(raw: RawPushMessage) {
   navigateByPush(payload)
 }
 
+/**
+ * 归一化 `uni.onPushMessage` 的回调结果。
+ * 官方回调形如 `{ type: 'receive' | 'click', data: { title, content, payload } }`，
+ * 消息体在 data 里再嵌一层，直接丢给 parsePushPayload 会取不到 payload。
+ *
+ * ⚠️ 只认 `data.payload`，**不拿 `data.data` 兜底**：那是臆测字段，
+ *    万一它承载的是别的业务数据会被误当 payload 解析出错误的跳转地址。
+ *    取不到 payload 就让它取不到 —— parsePushPayload 兜底返回空对象，
+ *    后续按「无可跳转内容」处理，比猜错链接安全得多。
+ */
+function normalizeOnPushMessage(res: any): RawPushMessage {
+  const data = res?.data
+  if (data && typeof data === 'object') {
+    return {
+      type: res?.type,
+      title: data.title,
+      content: data.content,
+      payload: data.payload,
+    }
+  }
+  return {
+    type: res?.type,
+    payload: typeof data === 'string' ? data : undefined,
+  }
+}
+
+/**
+ * 前台收到消息的去重。
+ *
+ * 与点击去重同源的问题：`uni.onPushMessage` 的 receive 与 `plus.push` 的 receive
+ * 在部分基座上会同时触发，不去重会导致同一条消息连续回查两次 HTTP 接口。
+ * 1s 窗口足够——两条回调的到达间隔在毫秒级。
+ */
+let lastReceiveKey = ''
+let lastReceiveAt = 0
+
+function handleForegroundOnce(raw: RawPushMessage) {
+  const key = raw?.title ? `${raw.type}|${raw.title}|${raw.content || ''}` : String(raw?.type)
+  const now = Date.now()
+  if (key === lastReceiveKey && now - lastReceiveAt < 1000) {
+    console.log('[push] 重复前台消息，已忽略', key)
+    return
+  }
+  lastReceiveKey = key
+  lastReceiveAt = now
+  handleForeground(raw)
+}
+
+/**
+ * 点击去重：`onPushMessage` 的 click 与 plus.push 的 click 在厂商通道下会
+ * 同时触发，不去重会导致同一条通知连续跳转两次。
+ */
+let lastClickKey = ''
+let lastClickAt = 0
+
+function handleClickOnce(raw: RawPushMessage) {
+  const payload = parsePushPayload(raw)
+  const key = `${payload.url || ''}|${payload.relatedType || ''}|${payload.relatedId || ''}`
+  const now = Date.now()
+  if (key === lastClickKey && now - lastClickAt < 2000) {
+    console.log('[push] 重复点击事件，已忽略', payload)
+    return
+  }
+  lastClickKey = key
+  lastClickAt = now
+
+  // 冷启动时 cid / 页面栈都还没就绪，缓存一拍等 onShow 补跳。
+  // ⚠️ click_action_type 只在 plus.push 的原始消息上，onPushMessage 归一化后没有这层
+  if (!payload.relatedId && !payload.url && (raw as any)?.data?.click_action_type) {
+    handleClick(raw)
+    return
+  }
+  if (!payload.relatedId && !payload.url) {
+    pendingClick = payload
+    return
+  }
+  handleClick(raw)
+}
+
 let inited = false
 
 /**
@@ -152,39 +232,39 @@ export function initPush() {
   inited = true
 
   // #ifdef APP-PLUS
-  // App 端 uni-push 2.0 底层是 plus.push，事件名 receive / click。
   // 依赖前提：manifest.json 已配置 app-plus.distribute.sdkConfigs.push.unipush
   // = { version:"2", offline:true }，编译器才会注入 @dcloudio/uni-push 的入口，
   // 运行时才会注册 uni.getPushClientId（pluginReady() 检查的就是它）。
   // 缺任一项，initPush 会在上面的 pluginReady() 处直接静默 return。
+  //
+  // uni.onPushMessage 是 uni-push 2.0 的官方消息回调：
+  //   type=receive —— App 在前台时收到消息（在线推送，不依赖厂商通道）
+  //   type=click   —— 用户点击通知
+  // uni-push 1.0 时代的 pushMessageReceived / pushMessageClicked 事件在 2.0 下
+  // 不再触发，不要再注册它们。
+  const uniPush = uni as unknown as {
+    onPushMessage?: (cb: (res: any) => void) => void
+  }
   try {
-    plus.push.addEventListener('receive', (msg: any) => handleForeground(msg))
-    // 只注册一个 click 监听：APNs/厂商通道与标准消息都从这里进来，
-    // 注册两个会导致同一条通知被跳转两次。
-    plus.push.addEventListener('click', (msg: any) => {
-      const data = msg?.data || {}
-      const payload = parsePushPayload(msg)
-      // 冷启动时页面尚未 ready，缓存一拍，等 onShow 再补跳
-      if (!payload.relatedId && !payload.url && !data.click_action_type) {
-        pendingClick = payload
-        return
-      }
-      handleClick(msg)
+    uniPush.onPushMessage?.((res: any) => {
+      const raw = normalizeOnPushMessage(res)
+      console.log('[push] onPushMessage', res?.type)
+      if (res?.type === 'click') handleClickOnce(raw)
+      else handleForegroundOnce(raw)
     })
   } catch (e) {
-    console.warn('[push] plus.push 事件注册失败', e)
+    console.warn('[push] onPushMessage 注册失败', e)
   }
 
-  // 部分 uni-push 版本在 App 端也会派发 uni 事件，双保险
-  // 注意：uni 类型的 addEventListener 未在 @dcloudio/types 中声明，这里做显式断言
-  const uniAny = uni as unknown as {
-    addEventListener?: (name: string, cb: (res: any) => void) => void
-  }
+  // plus.push 兜底：与上面的 onPushMessage 互为补充，由 handleClickOnce /
+  // handleForegroundOnce 去重后不会重复处理。
+  // 刻意保留是因为 onPushMessage 并非在所有基座 / ROM 上都稳定派发，
+  // 一旦只有它而没有兜底，前台消息与被杀后拉起的点击都会静默丢失，且无从排查。
   try {
-    uniAny.addEventListener?.('pushMessageReceived', (res: any) => handleForeground(res))
-    uniAny.addEventListener?.('pushMessageClicked', (res: any) => handleClick(res))
-  } catch {
-    /* ignore */
+    plus.push.addEventListener('receive', (msg: any) => handleForegroundOnce(msg))
+    plus.push.addEventListener('click', (msg: any) => handleClickOnce(msg))
+  } catch (e) {
+    console.warn('[push] plus.push 事件注册失败', e)
   }
   // #endif
 }

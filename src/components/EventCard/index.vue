@@ -1,18 +1,20 @@
 <!--
   EventCard  活动卡片（对齐首页精选卡片设计）
   ─────────────────────────────────────────────
-  UI：外层色块（按 type 换色）+ 白色圆角内层（标题 + tags）
+  UI：外层色块（按艺人主题色）+ 白色圆角内层（标题 + tags）
 
   头部：多艺人叠加头像（最多3个）+ 艺人名 + 状态徽章 + 书签按钮
   内层：活动标题（单行 ellipsis）+ 城市/日期/类型 3 个胶囊（带图标）
 
   颜色规则：
-    有 type → 5 固定色块（与首页精选卡片完全一致）
-    无 type  → genre 渐变色 fallback（entryGenreCode 兜底）
+    按「艺人主题色」取色 —— 一位艺人一个色，活动卡片外层色块用该艺人
+    的浅色主题底，其艺人名/图标用配套深色 ink。艺人没配主题色时按
+    artist_id 哈希从预设浅色板取，稳定不飘；连艺人都没有则中性灰。
+    多艺人活动取 artists[0]（后端按 setlist_order 排序，即主艺人）。
 
   props:
     event          Event           后端返回的活动项
-    entryGenreCode string?         入口 genre code（颜色兜底）
+    entryGenreCode string?         入口 genre code（保留兼容，当前不参与取色）
     variant        'list'|'swiper' 默认 'list'；swiper 模式撑满 swiper-item
 
   emits:
@@ -21,8 +23,8 @@
 <template>
   <view
     class="event-card"
-    :class="[`event-card--${variantCls}`, `event-card--${typePalette}`]"
-    :style="fallbackBg ? { background: fallbackBg } : {}"
+    :class="[`event-card--${variantCls}`]"
+    :style="{ background: theme.base }"
     @click="$emit('select', event.id)"
   >
     <!-- 头部：艺人头像(叠加) + 艺人名 + 徽章 + 书签 -->
@@ -61,7 +63,10 @@
       </view>
       <text
         class="artist-name"
-        :style="{ marginLeft: artists.length > 1 ? '8%' : '0' }"
+        :style="{
+          marginLeft: artists.length > 1 ? '8%' : '0',
+          color: theme.ink,
+        }"
       >
       {{ artistLineText }}
       </text>
@@ -126,7 +131,7 @@ import {
   STATUS_BADGE_COLOR,
   effectiveEventStatus,
 } from "@/constants/eventMeta";
-import { genreGradient, getGenreByCode } from "@/constants/genres";
+import { resolveArtistTheme } from "@/constants/artistTheme";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { getArtistAvatarSrc } from "@/utils/avatar";
@@ -135,6 +140,15 @@ const props = defineProps<{
   event: Event;
   entryGenreCode?: string;
   variant?: "list" | "swiper";
+  /**
+   * 艺人详情页专用：当前浏览的艺人。传入后卡片取色以该艺人为准，
+   * 而非活动主艺人（artists[0]）。
+   * 多艺人活动（如痛仰乐队 + 高虎）在高虎详情页应显示高虎的色，
+   * 传空则回退到 artists[0]，行为与首页/列表页一致。
+   */
+  themeArtistId?: string;
+  /** 与 themeArtistId 配对：当前艺人的 theme_color，可为空表示走哈希兜底 */
+  themeColor?: string;
 }>();
 
 defineEmits<{
@@ -147,42 +161,6 @@ const userStore = useUserStore();
 // ── variant ──
 const variantCls = computed(() => props.variant || "list");
 
-// ── 颜色系统 ──
-type PaletteKey = "blue" | "purple" | "pink" | "yellow" | "green" | "default";
-const TYPE_PALETTE: Record<string, PaletteKey> = {
-  Concert: "blue",
-  Music_Festival: "purple",
-  Fan_Meeting: "pink",
-  Anime_Expo: "yellow",
-  Concert_Hall: "green",
-};
-
-// chip icon 颜色：深色版，随 type 变化
-const CHIP_ICON_COLOR: Record<PaletteKey, string> = {
-  blue: "#26517A",
-  purple: "#4B3070",
-  pink: "#7A2A36",
-  yellow: "#7A5A1B",
-  green: "#2D5C2E",
-  default: "#333",
-};
-
-const typePalette = computed<PaletteKey>(
-  () => TYPE_PALETTE[props.event.type || ""] || "default",
-);
-
-// 无 type 时用 genre 渐变作为 fallback 背景（内联 style）
-const fallbackBg = computed(() => {
-  if (typePalette.value !== "default") return null; // 有明确色块时不用 fallback
-  const ownGenre = (props.event as any).genres?.[0]?.genre_code;
-  const code = ownGenre || props.entryGenreCode;
-  const color = code ? getGenreByCode(code)?.color : undefined;
-  if (!color) return null;
-  return genreGradient(color);
-});
-
-const chipIconColor = computed(() => CHIP_ICON_COLOR[typePalette.value]);
-
 // ── 艺人 ──
 // 使用统一的默认头像（与详情页保持一致）
 const defaultAvatar = getArtistAvatarSrc();
@@ -194,13 +172,32 @@ interface ArtistItem {
   avatar_url?: string;
   type?: string;
   gender?: string;
+  /** 后端 artists.theme_color，空串表示未配置 */
+  theme_color?: string;
 }
 const artists = computed<ArtistItem[]>(
   () => (props.event as any).artists || [],
 );
 
-const artistLineText = computed(() => {
-  const list = artists.value;
+// ── 颜色系统 ──
+// 主题色跟着艺人走：后台配了就用配的，没配就按 artist_id 哈希取预设浅色板，
+// 保证同一个艺人出现在列表 / 首页 swiper / 艺人详情 / 活动详情里都是同一个色。
+// 艺人详情页传 themeArtistId，优先用「当前浏览的艺人」；其他场景取 artists[0]
+// （后端已按 setlist_order 排序，即主艺人）。
+const theme = computed(() => {
+  if (props.themeArtistId) {
+    return resolveArtistTheme(props.themeColor, props.themeArtistId);
+  }
+  return resolveArtistTheme(
+    artists.value[0]?.theme_color,
+    artists.value[0]?.artist_id,
+  );
+});
+
+// 胶囊图标：与艺人名同色系（浅底上的深色前景）
+const chipIconColor = computed(() => theme.value.ink);
+
+const artistLineText = computed(() => {  const list = artists.value;
   if (!list.length) return "";
   if (list.length <= 2)
     return list.map((a) => a.artist_name || a.name || "").join("、");
@@ -294,30 +291,6 @@ async function onBookmarkTap() {
   flex-direction: column;
 }
 
-/* ── 5 色色块（加深饱和度让白字艺人名清晰可读）── */
-.event-card--blue {
-  background: #9bc6e8;
-}
-.event-card--purple {
-  background: #bda5e3;
-}
-.event-card--pink {
-  background: #ec9ba6;
-}
-.event-card--yellow {
-  background: #edcf6f;
-}
-.event-card--green {
-  background: #a5d8a0;
-}
-.event-card--default {
-  background: linear-gradient(
-    180deg,
-    rgba(110, 120, 135, 1) 0%,
-    rgba(140, 150, 165, 1) 100%
-  );
-}
-
 /* ── 头部 ── */
 .event-card-head {
   display: flex;
@@ -339,7 +312,8 @@ async function onBookmarkTap() {
   width: 60rpx;
   height: 60rpx;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.6);
+  /* 底色已变浅，rgba(255,255,255,.6) 几乎看不出头像边界，提到 .85 */
+  background: rgba(255, 255, 255, 0.85);
   border: 3rpx solid #fff;
   position: absolute;
   top: 0;
@@ -361,7 +335,8 @@ async function onBookmarkTap() {
   flex: 1;
   font-size: 26rpx;
   font-weight: 600;
-  color: #fff;
+  /* 底色已改为浅色主题底，白字不可读；实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

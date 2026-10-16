@@ -60,8 +60,8 @@
       </view>
 
       <view v-if="d" class="content">
-        <!-- ── 粉色信息卡片 ── -->
-        <view class="card">
+        <!-- 信息卡片：底色用主艺人主题色（与活动卡片/艺人详情页同色） -->
+        <view class="card" :style="{ background: theme.base }">
           <view class="avatar-wrap">
             <image class="avatar" :src="firstArtistAvatar" mode="aspectFill" />
           </view>
@@ -92,11 +92,54 @@
               class="see-all"
               @tap="expanded = !expanded"
             >
-              <text class="see-all-text">{{ expanded ? "▴ 收起" : "▾ 查看所有" }}</text>
+              <text class="see-all-text" :style="{ color: theme.ink }">{{ expanded ? "▴ 收起" : "▾ 查看所有" }}</text>
             </view>
 
-            <!-- 统计信息行（点赞/订阅/主办方） -->
-            <view class="card-stats-row">
+            <!-- 上传用户（发布者）单独一行 -->
+            <view class="card-organizer-row">
+              <image
+                class="card-type-icon"
+                src="/static/detail_icon/organizer.svg"
+                mode="aspectFit"
+              />
+              <text class="card-type-text card-type-text--ellipsis">{{
+                d.organizer
+              }}</text>
+            </view>
+
+            <!-- 活动类型 + 收藏数 + 点赞数 -->
+            <view class="card-type-row">
+              <view class="card-type-item">
+                <image
+                  class="card-type-icon"
+                  src="/static/detail_icon/event-type.svg"
+                  mode="aspectFit"
+                />
+                <text class="card-type-text card-type-text--ellipsis">{{
+                  typeLabel || "待定"
+                }}</text>
+              </view>
+              <view
+                class="card-stat card-stat--clickable"
+                :class="{ 'card-stat--subscribed': isSubscribed }"
+                hover-class="card-stat--hover"
+                @click="onToggleSubscribe"
+              >
+                <image
+                  class="card-stat-icon"
+                  :src="
+                    isSubscribed
+                      ? '/static/icons/subscribed.svg'
+                      : '/static/detail_icon/collect.svg'
+                  "
+                  mode="aspectFit"
+                />
+                <text
+                  class="card-stat-val"
+                  :class="{ 'card-stat-val--active': isSubscribed }"
+                  >{{ subscribeCount }}</text
+                >
+              </view>
               <view class="card-stat card-stat--clickable" @click="onToggleLike">
                 <image
                   class="card-stat-icon"
@@ -113,32 +156,6 @@
                   >{{ likesCount }}</text
                 >
               </view>
-              <view class="card-stat">
-                <image
-                  class="card-stat-icon"
-                  src="/static/detail_icon/collect.svg"
-                  mode="aspectFit"
-                />
-                <text class="card-stat-val">{{ subscribeCount }}</text>
-              </view>
-              <view class="card-stat">
-                <image
-                  class="card-stat-icon"
-                  src="/static/detail_icon/organizer.svg"
-                  mode="aspectFit"
-                />
-                <text class="card-stat-val">{{ d.organizer }}</text>
-              </view>
-            </view>
-
-            <!-- 活动类型 -->
-            <view class="card-type-row">
-              <image
-                class="card-type-icon"
-                src="/static/detail_icon/event-type.svg"
-                mode="aspectFit"
-              />
-              <text class="card-type-text">{{ typeLabel || "待定" }}</text>
             </view>
           </view>
         </view>
@@ -165,19 +182,32 @@
                 :key="s.id || i"
                 class="session-tab"
                 :class="{ 'session-tab--active': i === activeSessionIdx }"
+                :style="
+                  i === activeSessionIdx
+                    ? {
+                        background: withAlpha(theme.ink, 0.1),
+                        borderColor: withAlpha(theme.ink, 0.3),
+                      }
+                    : {}
+                "
                 @tap="selectSession(i)"
               >
-                <text class="session-tab-text">{{
-                  sessionLabel(s, i, d.sessions.length)
-                }}</text>
+                <text
+                  class="session-tab-text"
+                  :style="i === activeSessionIdx ? { color: theme.ink } : {}"
+                  >{{ sessionLabel(s, i, d.sessions.length) }}</text
+                >
               </view>
             </view>
           </scroll-view>
 
           <view v-if="currentSession" class="session-card">
-            <view class="session-header">
+            <view
+              class="session-header"
+              :style="{ background: withAlpha(theme.ink, 0.08) }"
+            >
               <view class="session-badge">
-                <text class="session-badge-text">{{
+                <text class="session-badge-text" :style="{ color: theme.ink }">{{
                   sessionLabel(
                     currentSession,
                     activeSessionIdx,
@@ -186,13 +216,19 @@
                 }}</text>
               </view>
               <view v-if="d.sessions.length > 1" class="session-count">
-                <text class="session-count-text"
-                  >{{ activeSessionIdx + 1 }} / {{ d.sessions.length }}</text
+                <text class="session-count-text" :style="{ color: theme.ink }">{{
+                  activeSessionIdx + 1 }} / {{ d.sessions.length }}</text
                 >
               </view>
             </view>
 
-            <view class="session-content">
+            <view
+              class="session-content"
+              :style="{
+                '--ti': withAlpha(theme.ink, 0.12),
+                '--ti-soft': withAlpha(theme.ink, 0.07),
+              }"
+            >
               <!-- 城市 -->
               <view class="detail-row">
                 <view class="detail-icon-wrap">
@@ -203,7 +239,7 @@
                   />
                 </view>
                 <text class="dtxt">{{
-                  formatCity(currentSession.city) || "待定"
+                  formatCityCountry(currentSession.city, currentSession.country) || "待定"
                 }}</text>
               </view>
 
@@ -385,6 +421,8 @@ import { switchTabPage } from "@/utils/pages";
 import { getNavBarMetrics } from "@/utils/system";
 import { openExternalUrl } from "@/utils/openExternal";
 import { formatCity } from "@/constants/cities";
+import { formatCityCountry } from "@/constants/countries";
+import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
 import type { EventSession } from "@/types/event";
 import {
   EVENT_TYPE_LABEL,
@@ -480,6 +518,15 @@ const displayedArtists = computed(() =>
 );
 // 头像取第一个有效艺人，缺省走 getArtistAvatarSrc 内部的占位图
 const firstArtistAvatar = computed(() => getArtistAvatarSrc(validArtists.value[0]));
+
+// ---- 主题色 ----
+// 必须取「未过滤」的 artists[0] 而不是 validArtists[0]：
+// EventCard 也是按 artists[0] 取色的，两边口径要一致，
+// 否则首个艺人 artist_name 为空的脏数据会让同一活动在两页显示不同颜色。
+const theme = computed(() => {
+  const a = (d.value?.artists ?? [])[0];
+  return resolveArtistTheme(a?.theme_color, a?.artist_id);
+});
 
 // ---- 点赞 ----
 const isLiked = computed(() => {
@@ -741,10 +788,10 @@ const noticeItems = computed(() => {
   height: 90%;
 }
 
-/* ── 粉色卡片 ── */
+/* ── 信息卡片（底色由内联 theme.base 覆盖，见模板）── */
 .card {
   margin: 60rpx 24rpx 0;
-  background: #ff9a9e;
+  background: #e4e5e9;
   border-radius: 24rpx;
   padding-bottom: 28rpx;
   position: relative;
@@ -824,16 +871,11 @@ const noticeItems = computed(() => {
 }
 .see-all-text {
   font-size: 24rpx;
-  color: #ffffff;
+  /* 底色已改为浅色主题底，白字不可读；实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
 }
 
-/* 卡片内统计行（点赞/订阅/主办方） */
-.card-stats-row {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 16rpx;
-  margin-bottom: 12rpx;
-}
+/* 统计项（收藏数 / 点赞数） */
 .card-stat {
   display: flex;
   align-items: center;
@@ -866,28 +908,66 @@ const noticeItems = computed(() => {
   font-weight: 600;
 }
 .card-stat--clickable {
-  cursor: pointer;
-}
+    cursor: pointer;
+  }
+  .card-stat--hover {
+    opacity: 0.6;
+  }
+  /* 已订阅：胶囊底色微染 + 数字高亮，与导航栏订阅态保持一致 */
+  .card-stat--subscribed {
+    background: rgba(254, 165, 0, 0.08);
+  }
+  .card-stat-val--active {
+    color: #fea500;
+    font-weight: 600;
+  }
 
-/* 卡片内活动类型行 */
-.card-type-row {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 24rpx;
-  padding: 10rpx 16rpx;
-}
-.card-type-icon {
-  width: 28rpx;
-  height: 28rpx;
-  flex-shrink: 0;
-}
-.card-type-text {
-  font-size: 22rpx;
-  color: #333;
-  line-height: 1.3;
-}
+  /* 卡片内上传用户行（单独占一行） */
+  .card-organizer-row {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 24rpx;
+    padding: 10rpx 16rpx;
+    margin-top: 16rpx;
+    margin-bottom: 12rpx;
+  }
+
+  /* 卡片内活动类型行：活动类型 / 订阅数 / 点赞数 三个独立胶囊并排 */
+  .card-type-row {
+    display: flex;
+    align-items: center;
+    gap: 12rpx;
+  }
+  /* 活动类型自身也是一个独立胶囊，与订阅/点赞同规格 */
+  .card-type-item {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 24rpx;
+    padding: 10rpx 16rpx;
+  }
+  .card-type-icon {
+    width: 28rpx;
+    height: 28rpx;
+    flex-shrink: 0;
+  }
+  .card-type-text {
+    font-size: 22rpx;
+    color: #333;
+    line-height: 1.3;
+  }
+  .card-type-text--ellipsis {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 
 .divider {
   height: 1rpx;
@@ -972,8 +1052,9 @@ const noticeItems = computed(() => {
   border: 1rpx solid transparent;
 }
 .session-tab--active {
-  background: rgba(254, 165, 0, 0.12);
-  border-color: rgba(254, 165, 0, 0.45);
+  /* 底色与描边由内联 theme 覆盖，见模板 */
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.15);
 }
 .session-tab-text {
   font-size: 26rpx;
@@ -983,7 +1064,8 @@ const noticeItems = computed(() => {
 .session-tab--active .session-tab-text {
   font-size: 26rpx;
   font-weight: 600;
-  color: #f59e0b;
+  /* 实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
 }
 
 /* ── 单个场次卡片 ── */
@@ -999,8 +1081,11 @@ const noticeItems = computed(() => {
 }
 
 /* ── 场次头部 ── */
+/* 底色由内联 withAlpha(theme.ink, ...) 覆盖（见模板）：
+   用「淡墨色」而非 theme.base，是为了跟下方白色的 .session-content 拉开层次——
+   两者都是浅色，直接都用 base 会糊成一片。 */
 .session-header {
-  background: #d1d0d0;
+  background: rgba(0, 0, 0, 0.06);
   padding: 20rpx 32rpx;
   display: flex;
   justify-content: space-between;
@@ -1010,7 +1095,7 @@ const noticeItems = computed(() => {
 
 .session-badge {
   display: inline-flex;
-  background: rgba(246, 246, 246, 0.25);
+  background: rgba(255, 255, 255, 0.55);
   border-radius: 24rpx;
   padding: 8rpx 20rpx;
   backdrop-filter: blur(10rpx);
@@ -1019,7 +1104,8 @@ const noticeItems = computed(() => {
 .session-badge-text {
   font-size: 26rpx;
   font-weight: 600;
-  color: #fff;
+  /* 底色已改为浅色主题底，白字不可读；实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
   letter-spacing: 1rpx;
 }
 
@@ -1030,7 +1116,8 @@ const noticeItems = computed(() => {
 
 .session-count-text {
   font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.9);
+  /* 同上，实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
   font-weight: 500;
 }
 
@@ -1048,7 +1135,8 @@ const noticeItems = computed(() => {
   padding: 16rpx 20rpx;
   background: rgba(255, 255, 255, 0.8);
   border-radius: 16rpx;
-  border: 1rpx solid rgba(254, 165, 0, 0.1);
+  /* --ti 由 .session-content 上的内联主题色注入，见模板 */
+  border: 1rpx solid var(--ti-soft, rgba(0, 0, 0, 0.07));
 }
 
 .detail-row:last-child {
@@ -1063,11 +1151,8 @@ const noticeItems = computed(() => {
   width: 40rpx;
   height: 40rpx;
   border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    rgba(254, 165, 0, 0.15) 0%,
-    rgba(255, 140, 0, 0.15) 100%
-  );
+  /* 原为橙色渐变；改为墨色单层，色相跟随艺人主题 */
+  background: var(--ti, rgba(0, 0, 0, 0.12));
   display: flex;
   align-items: center;
   justify-content: center;

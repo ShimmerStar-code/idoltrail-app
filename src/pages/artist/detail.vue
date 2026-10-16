@@ -37,15 +37,22 @@
         </view>
 
         <scroll-view scroll-y class="scroll-body">
-          <!-- 艺术家粉色卡片 -->
-          <view class="artist-card">
+          <!-- 艺人卡片：底色/文字用该艺人的主题色（与活动卡片同色） -->
+          <view
+            class="artist-card"
+            :style="{
+              background: theme.base,
+              borderColor: withAlpha(theme.ink, 0.18),
+              boxShadow: `0 10rpx 20rpx 0 ${withAlpha(theme.ink, 0.14)}`,
+            }"
+          >
             <view class="card-row">
               <view class="avatar-wrap">
                 <image class="avatar" :src="avatarSrc" mode="aspectFill" @error="onAvatarError" />
               </view>
-              <text class="card-name">{{ titleWithAliases }}</text>
+              <text class="card-name" :style="{ color: theme.ink }">{{ titleWithAliases }}</text>
             </view>
-            <text v-if="description" class="card-desc">{{ description }}</text>
+            <text v-if="description" class="card-desc" :style="{ color: theme.ink }">{{ description }}</text>
 
             <!-- 基本信息标签:流式排布 -->
             <view class="info-tags">
@@ -82,6 +89,8 @@
                 :key="ev.id"
                 :event="ev"
                 :entryGenreCode="store.detail?.genres?.[0]?.genre_code"
+                :theme-artist-id="store.detail?.id"
+                :theme-color="store.detail?.theme_color"
                 @select="toEvent"
               />
             </view>
@@ -128,6 +137,7 @@ import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import EventCard from "@/components/EventCard/index.vue";
+import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
 import { zodiacOf } from "@/utils/zodiac";
 import { getArtistAvatarSrc, getDefaultAvatarSrc } from "@/utils/avatar";
 import { getNavBarMetrics } from "@/utils/system";
@@ -178,6 +188,12 @@ const titleWithAliases = computed(() => {
   const aliasNames = (d.aliases || []).map((a) => a.name).filter(Boolean);
   return aliasNames.length ? `${d.name}(${aliasNames.join("、")})` : d.name;
 });
+
+// ── 主题色 ──
+// 与活动卡片（EventCard）取同一个色：该艺人配了就用配的，没配按 id 哈希取预设色
+const theme = computed(() =>
+  resolveArtistTheme(store.detail?.theme_color, store.detail?.id),
+);
 
 // ── 简介:优先 detail.description,无则空 ──
 const description = computed(() => store.detail?.detail?.description || "");
@@ -539,13 +555,13 @@ function toEventList() {
   flex: 1;
 }
 
-/* 艺术家粉色卡片 */
+/* 艺人卡片：底色与文字由内联 theme.base / theme.ink 覆盖（见模板） */
 .artist-card {
   margin: 22rpx 30rpx 0;
-  background: rgba(255, 182, 182, 1);
+  background: #e4e5e9;
   border-radius: 30rpx;
-  border: 1rpx solid rgba(245, 131, 135, 1);
-  box-shadow: 0 10rpx 20rpx 0 rgba(255, 216, 217, 1);
+  border: 1rpx solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10rpx 20rpx 0 rgba(0, 0, 0, 0.08);
   padding: 30rpx 28rpx 24rpx;
 }
 .card-row {
@@ -570,7 +586,8 @@ function toEventList() {
 .card-name {
   font-size: 30rpx;
   font-weight: 600;
-  color: #fff;
+  /* 底色已改为浅色主题底，白字不可读；实际颜色由内联 theme.ink 覆盖 */
+  color: #333;
   line-height: 1.5;
   flex: 1;
   word-wrap: break-word;
@@ -579,7 +596,8 @@ function toEventList() {
 .card-desc {
   display: block;
   font-size: 26rpx;
-  color: #fff;
+  /* 同上，实际颜色由内联 theme.ink 覆盖 */
+  color: #555;
   line-height: 1.6;
   margin-bottom: 24rpx;
   word-break: break-all;

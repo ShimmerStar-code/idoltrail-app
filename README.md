@@ -23,7 +23,9 @@ npx uni -p app-android
 npx uni -p app-ios
 ```
 
-后端在 WSL 中运行时，Windows 侧 `localhost:8081` 转发不通，用 `wsl hostname -I` 查 WSL IP 填进 `.env`。
+后端已部署到测试服务器 `103.24.218.69:8081`，手机与本机均可直连，`.env` 默认即指向该地址。
+
+只有在本地用 WSL 起后端服务时才需要改地址：Windows 侧 `localhost:8081` 转发不通，用 `wsl hostname -I` 查 WSL IP 填进 `.env`。后端部署方式见 `../idoltrail-server-main/DEPLOY.md`。
 
 产物目录：
 

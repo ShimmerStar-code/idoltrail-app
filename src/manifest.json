@@ -1,6 +1,6 @@
 {
     "name" : "偶像轨迹",
-    "appid" : "__UNI__REPLACE_WITH_DCLOUD_APPID__",
+    "appid" : "__UNI__F1F9279",
     "description" : "演唱会 / 音乐活动信息平台",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -15,14 +15,27 @@
             "autoclose" : true,
             "delay" : 0
         },
-        /* 需要的原生模块：推送、分享、相机。
-           刻意不声明 Geolocation：城市定位已改为服务端按来源 IP 推断
-           （见 src/utils/location.ts），不再调用 uni.getLocation，
-           因而不需要定位模块、不需要高德 key、也不需要申请定位权限。 */
+        /* 需要的原生模块：推送、分享、相机、定位。
+
+           Geolocation 只勾选「系统定位」（HBuilderX 3.2.16 起独立出的模块，
+           模块标识就是 Geolocation），**不勾选任何三方定位 SDK**：
+             · 刻意不声明 Geolocation-Tencent / Geolocation-Baidu
+             · 刻意不在 distribute.sdkConfigs.location 填高德 / 腾讯 key
+           因此不需要向任何地图厂商申请账号、实名认证或商业授权（5 万元/年起）。
+           系统定位只返回 WGS84 经纬度（Android 不支持解析地址），
+           城市名由后端天地图逆地理编码解析，见 src/utils/location.ts。 */
         "modules" : {
             "Push" : {},
             "Share" : {},
-            "Camera" : {}
+            "Camera" : {},
+            "Geolocation" : {},
+            /* OAuth（登录鉴权）：承载 uni 一键登录（univerify）原生能力。
+               一键登录的取号逻辑在 SDK 内部，本 App 只调用 uni.preLogin /
+               uni.login 拿一次性 access_token + openid，手机号由服务端经
+               uniCloud 云函数换取，见 src/utils/univerify.ts。
+               ⚠️ 必须用**包含该模块的自定义基座或云打包**安装才能生效，
+                  旧基座 / 普通 H5 调试不会有这个入口（前端已做能力探测降级）。 */
+            "OAuth" : {}
         },
         /* 启动图：图标资源放在 src/static/ 下，云打包时在 manifest 可视化界面替换 */
         "distribute" : {
@@ -31,6 +44,12 @@
                 "targetSdkVersion" : 34,
                 "abiFilters" : [ "armeabi-v7a", "arm64-v8a", "x86_64" ],
                 "permissions" : [
+                    /* 城市定位（uni.getLocation 系统定位）所需权限。
+                       COARSE 精度即可满足「定位到城市」的业务诉求，FINE 一并声明：
+                       部分厂商 ROM 的定位服务在仅有 FINE 时才提供 NETWORK_PROVIDER 结果。
+                       两项均为运行时权限，需用户主动授权，见 src/utils/privacy.ts。 */
+                    "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
@@ -58,19 +77,19 @@
                 "idfa" : false,
                 "capabilities" : {
                     "entitlements" : {
-                        "com.apple.developer.associated-domains" : [ ]
+                        "com.apple.developer.associated-domains" : []
                     }
                 },
                 /* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
      本 App 未接入任何广告追踪（"idfa": false，代码中无 ATT 调用）。
-     声明 ATT 用途却不请求授权，是 App Store 审核的常见拒审点。
-
-     ⚠️ 同样刻意不声明 NSLocationWhenInUseUsageDescription：
-     城市定位已改为服务端按来源 IP 推断，不再调用 uni.getLocation。
-     不申请位置权限就不能声明用途文案，反之声明了却不申请同样会被审核挑刺。 */
+     声明 ATT 用途却不请求授权，是 App Store 审核的常见拒审点。 */
                 "privacyDescription" : {
                     "NSCameraUsageDescription" : "用于拍摄活动海报，便于上传到个人主页",
-                    "NSPhotoLibraryUsageDescription" : "用于从相册选择图片作为头像"
+                    "NSPhotoLibraryUsageDescription" : "用于从相册选择图片作为头像",
+                    /* 城市定位：iOS 用系统 CoreLocation，首次调用 uni.getLocation 时由系统弹窗授权。
+                       文案必须与实际用途一致，且必须真正申请权限——
+                       声明了不申请、或申请了不声明，都会被 App Store 审核挑刺。 */
+                    "NSLocationWhenInUseUsageDescription" : "用于根据您所在城市为您预选本地演出，可随时在系统设置中关闭"
                 }
             },
             /* uni-push 2.0 的两个开关由**编译器**读取
@@ -90,7 +109,17 @@
                         "version" : "2",
                         "offline" : true
                     }
-                }
+                },
+                "geolocation" : {
+                    "system" : {
+                        "__platform__" : [ "ios", "android" ]
+                    }
+                },
+                "maps" : {},
+                "oauth" : {
+                    "univerify" : {}
+                },
+                "share" : {}
             },
             /* 分享说明：src/utils/share.ts 走 plus.share.sendWithSystem 调起系统分享面板，
                不依赖微信 / QQ / 微博 SDK，因此这里不需要任何 sdkConfigs 配置。
@@ -131,5 +160,6 @@
     "uniStatistics" : {
         "enable" : false
     },
-    "vueVersion" : "3"
+    "vueVersion" : "3",
+    "locale" : "zh-Hans"
 }

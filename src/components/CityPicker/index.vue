@@ -195,6 +195,13 @@ function regionListToOptions(list: RegionItem[]): CityOption[] {
 
 // ── 打开弹层：数据源优先级 availableCities > regions API ──
 watch(() => props.visible, async (v) => {
+  // 开合都要复位定位态并停掉兜底定时器。
+  // 用户在「定位中...」时手动关掉弹窗是常见操作，若 locating 残留为 true，
+  // 下次打开会顶着上一轮的转圈文案；兜底定时器若留下，会在弹窗已关闭时
+  // 对已卸载的 DOM 写 locateMsg。
+  locating.value = false;
+  clearCityPickerTimers();
+
   if (!v) {
     keyword.value = "";
     isSearching.value = false;
@@ -355,7 +362,11 @@ async function reLocate() {
   locateMsg.value = ''
   locateError.value = false
 
-  // 超时兜底：3s 内未完成则显示提示
+  // 超时兜底：20s 内未完成则显示提示。
+  // 取 20s 而非 IP 时代的 3s：坐标链路 = 系统授权框（用户可能思考十几秒）
+  // + 系统定位 1~3s + 服务端逆地理编码，3s 会在**绝大多数真机**上误判为失败，
+  // 进而在下面 `if (!locating.value) return` 处把已经成功的结果丢掉。
+  // 这个按钮是用户主动点的，等待期间有「定位中...」文案，长一点可以接受。
   const fallback = () => {
     locateSafeTimer = null
     locating.value = false
@@ -363,7 +374,7 @@ async function reLocate() {
     locateError.value = true
   }
   if (locateSafeTimer) clearTimeout(locateSafeTimer)
-  locateSafeTimer = setTimeout(fallback, 3000)
+  locateSafeTimer = setTimeout(fallback, 20000)
 
   try {
     // force: true —— 用户点「重新定位」的前提就是当前城市不对（出差 / 换网络 / 用了代理），
@@ -372,20 +383,25 @@ async function reLocate() {
     clearLocateSafeTimer()
     // 接口返回与兜底定时器谁先到不确定，fallback 已把 locating 置 false 即代表它赢了
     if (!locating.value) return
-    console.log("[CityPicker] IP 定位结果:", city)
+    console.log("[CityPicker] 定位结果:", city)
+    // 成功路径必须复位：pick() 只 emit 关闭，本身不碰 locating。
+    // 一旦上层没有响应 visible 变化把弹窗关掉，弹窗就会留在原地、
+    // 顶着「定位中...」的文案——定位其实早已成功，界面却永远转圈。
+    // 失败路径经由 fallback() 复位，成功路径必须自己来，两条路径才对称。
+    locating.value = false
     const cityOption = allCities.value.find((c) => c.displayName === city)
     if (cityOption) {
       // 定位成功后自动选择该城市
       pick(cityOption)
     } else {
-      // IP 库给出的城市不在可选列表里（如海外 IP），如实告知而非静默失败
+      // 定位出的城市不在可选列表里（如海外城市），如实告知而非静默失败
       locateMsg.value = `已定位到${city}`
       locateError.value = false
     }
   } catch (e) {
     clearLocateSafeTimer()
     // 弹层打开期间的错误必须内联展示：mask 的 z-index 9999 会盖住 uni-toast 的 999
-    console.error("[CityPicker] IP 定位失败", e)
+    console.error("[CityPicker] 定位失败", e)
     fallback()
   }
 }

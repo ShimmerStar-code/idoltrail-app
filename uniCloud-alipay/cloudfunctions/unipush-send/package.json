@@ -1,0 +1,12 @@
+{
+  "name": "unipush-send",
+  "version": "1.0.0",
+  "description": "uni-push 2.0 消息下发中转（URL 化云函数，供 idoltrail-server-main 调用）",
+  "main": "index.js",
+  "author": "idoltrail",
+  "license": "UNLICENSED",
+  "extensions": {
+    "uni-cloud-push": {}
+  },
+  "dependencies": {}
+}

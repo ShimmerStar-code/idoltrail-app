@@ -1,7 +1,13 @@
 // Pinia store：用户登录态
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { User, PhoneLoginResponse, AppleLoginResponse, AuthTokens } from '@/types/auth'
+import type {
+  User,
+  PhoneLoginResponse,
+  AppleLoginResponse,
+  OneKeyLoginResponse,
+  AuthTokens
+} from '@/types/auth'
 import { authApi } from '@/api/auth'
 import { request, resetSessionExpiredNotice } from '@/utils/request'
 import { captureCurrentPage, restorePage, type PageSnapshot } from '@/utils/pages'
@@ -73,7 +79,7 @@ export const useUserStore = defineStore('user', () => {
   /**
    * setLoginPayload 同时服务手机号登录与 Apple 登录 —— 两个响应结构完全一致。
    */
-  function setLoginPayload(p: PhoneLoginResponse | AppleLoginResponse) {
+  function setLoginPayload(p: PhoneLoginResponse | AppleLoginResponse | OneKeyLoginResponse) {
     // 取消原来"needSign 时不写盘 token"的设计 —— 协议补签请求(/auth/agreement)需要带 token,
     // 不写盘会导致 401。改为:token 总是写到 storage 和内存,
     // 但 isLoggedIn 仍为 false(因为 agreementRequired=true),业务页面会按未登录处理。
@@ -309,6 +315,32 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /**
+   * uni 一键登录（App 端本机号码免短信）。
+   *
+   * accessToken / openID 来自 `uni.login({ provider: 'univerify' })`，
+   * 是一次性凭证：**手机号始终在服务端换取，前端拿不到也不会去猜**。
+   * 换出的是手机号账号，与 loginWithPhone 是同一个账号（user_auths.phone）。
+   */
+  async function loginWithOneKey(opts: {
+    accessToken: string
+    openID: string
+    profile?: { nickname?: string; avatar_url?: string; gender?: 0 | 1 | 2 }
+  }): Promise<OneKeyLoginResponse> {
+    const resp = await authApi.oneKeyLogin({
+      access_token: opts.accessToken,
+      openid: opts.openID,
+      ...(opts.profile || {}),
+      device_id: getDeviceId(),
+      device_type: getDeviceType(),
+      device_model: getDeviceModel(),
+      os_version: getOsVersion(),
+      app_version: getAppVersion(),
+    })
+    setLoginPayload(resp)
+    return resp
+  }
+
+  /**
    * Sign in with Apple 登录 / 绑定（iOS）。
    *
    * code 由 `uni.login({ provider: 'apple' })` 一次性返回，
@@ -396,6 +428,7 @@ export const useUserStore = defineStore('user', () => {
     clear,
     bootstrapSession,
     loginWithPhone,
+    loginWithOneKey,
     loginWithApple,
     logout,
     logoutAll,

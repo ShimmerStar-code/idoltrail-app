@@ -185,13 +185,13 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
             if (!skipAuthRedirect) {
               void notifySessionExpired()
             }
-            reject(new Error(body.message || '登录已过期'))
+            reject(bizError('登录已过期', body.code))
             return
           }
           if (!silent) {
             uni.showToast({ title: body.message || '请求失败', icon: 'none' })
           }
-          reject(new Error(body.message))
+          reject(bizError(body.message, body.code))
         },
         fail: (err) => {
           if (!silent) {
@@ -203,6 +203,20 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
       })
     })
   return doRequest()
+}
+
+/**
+ * 业务错误对象：在标准 Error 上补一个 `code` 字段（后端 errno）。
+ *
+ * 此前业务失败只 reject 一个纯 Error（仅 message），调用方要区分错误类型
+ * 只能去匹配文案（如 `/频繁/`），后端一改文案就失效。
+ * 补 code 是纯向后兼容的：所有 `catch (e) { e.message }` 的现有代码照常工作，
+ * 需要分流的地方（如一键登录的 40027）才读 `e.code`。
+ */
+function bizError(message: string, code?: number): Error & { code?: number } {
+  const err = new Error(message) as Error & { code?: number }
+  if (typeof code === 'number') err.code = code
+  return err
 }
 
 /** 静默 refresh 并重放一次的公共分支（HTTP 401 与业务 401xx 共用） */

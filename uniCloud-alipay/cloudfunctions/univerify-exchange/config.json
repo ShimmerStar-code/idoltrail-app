@@ -1,0 +1,9 @@
+{
+  "memorySize": 256,
+  "timeout": 15,
+  "path": "/idoltrail/univerify-exchange",
+  "runtime": "Nodejs",
+  "trigger": {
+    "args": []
+  }
+}

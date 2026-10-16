@@ -44,3 +44,15 @@ export const API_BASE_URL: string = (rawBaseUrl || FALLBACK_BASE_URL).replace(/\
  * 所以后台管理不会被打进 C 端包；dev / H5 / 真机自定义基座调试不受影响。
  */
 export const ADMIN_ENABLED: boolean = import.meta.env.VITE_ADMIN_ENABLED === 'true'
+
+/**
+ * uni-push 2.0 开关。
+ *
+ * 关闭时 usePush 完全不注册任何监听，也不会去取 cid，
+ * 避免在未集成 uni-push 模块的基座上反复报错。服务端未配置时推送会静默降级为
+ * 仅落库（App 轮询 HTTP 接口），故这里默认关闭以免误报。
+ *
+ * 注意：即使打开，也必须用含 uni-push 模块的自定义基座或云打包安装，
+ * 标准 HBuilder 运行基座收不到推送（详见 CLAUDE.md「推送」章节）。
+ */
+export const PUSH_ENABLED: boolean = import.meta.env.VITE_PUSH_ENABLED === 'true'

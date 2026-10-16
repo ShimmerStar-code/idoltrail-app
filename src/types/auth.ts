@@ -85,6 +85,48 @@ export interface AppleLoginResponse extends AuthTokens {
   missing_agreements?: string[]
 }
 
+/**
+ * POST /auth/onekey-login 请求（uni 一键登录，App 端本机号码免短信）
+ *
+ * 只带 univerify 的一次性凭证，**不接受手机号**：
+ * 手机号由服务端经 uniCloud 云函数换取，客户端自始至终拿不到。
+ */
+export interface OneKeyLoginRequest {
+  /** uni.login({provider:'univerify'}) 返回的一次性 access_token */
+  access_token: string
+  /** uni.login({provider:'univerify'}) 返回的 openid */
+  openid: string
+  nickname?: string
+  avatar_url?: string
+  gender?: 0 | 1 | 2
+  device_id?: string
+  device_type?: DeviceType | string
+  device_model?: string
+  os_version?: string
+  app_version?: string
+}
+
+/**
+ * POST /auth/onekey-login 响应
+ *
+ * 字段与手机号登录一致，便于 store 复用同一套写 token 的逻辑。
+ */
+export interface OneKeyLoginResponse extends AuthTokens {
+  user: User
+  is_new: boolean
+  agreement_required: boolean
+  missing_agreements?: string[]
+}
+
+/**
+ * 后端一键登录业务码（internal/pkg/errno），前端据此决定 UI 行为。
+ *
+ * - OneKeyUnavailable  → 永久隐藏一键登录入口（服务端未开通 / 设备不支持）
+ * - OneKeyExchangeFailed → 保留入口但提示改用短信验证码
+ */
+export const ERRNO_ONE_KEY_UNAVAILABLE = 40027
+export const ERRNO_ONE_KEY_EXCHANGE_FAILED = 40028
+
 export interface SendSmsResult {
   /** 验证码有效期（秒） */
   expires_in: number
