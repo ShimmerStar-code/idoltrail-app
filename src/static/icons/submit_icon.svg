@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>上传情报</title>
+    <!-- 相机取景框 + 向上箭头：拍照上报 -->
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect x="2.5" y="6.5" width="19" height="14" rx="3" stroke="#8A8F99" stroke-width="1.6"/>
+        <path d="M8.5 6.5 L9.8 4.2 C10 3.8 10.4 3.6 10.8 3.6 L13.2 3.6 C13.6 3.6 14 3.8 14.2 4.2 L15.5 6.5"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 16.5 L12 10.5 M9.4 13.1 L12 10.5 L14.6 13.1"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+</svg>

@@ -3,10 +3,10 @@
 // 与 cities.ts 同源：后端 event_sessions.country / artists.country 存 ISO 3166-1
 // alpha-2 两位码（CN / JP / KR / HK / MO …），前端用本文件转中文展示。
 //
-// ⚠️ 不要与 pages/artist/*.vue 里的 COUNTRY_LABELS 混用：那份是「首页分组标签」，
-//    带产品语义（US → "欧美"、SG/MY/TH → "新马泰"），是运营维度的聚合，
-//    不是法定国名。本表用于「城市·国家」这种需要准确国名的场合。
-//    两者取值不同是刻意的，不是数据不一致。
+// ⚠️ 偶像页不要直接用本表，改用 ./artistCountries：那边是艺人语境，
+//    港澳台保留为「中国台湾 / 中国香港」，且首页分组会把 SG/MY/TH
+//    合并成「新马泰」。本表用于「城市·国家」这种需要准确国名的场合，
+//    港澳台折叠成「中国」以避免「香港.中国香港」重复。
 
 import { formatCity as formatCitySafe } from "./cities"
 

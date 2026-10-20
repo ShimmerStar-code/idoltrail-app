@@ -11,7 +11,7 @@
 // userStore.clear() 仍会调本 store 的 reset()，登出后状态干净。
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef, type Ref } from 'vue'
 import { subscriptionApi } from '@/api/subscription'
 import type {
   ArtistCardVO,
@@ -21,16 +21,53 @@ import type {
 
 export const useSubscribeStore = defineStore('subscribe', () => {
   // ── id 集合（轻量，用于按钮反显） ──
+  //
+  // 必须保持「响应式 Set + 原地增删」，不能整体替换，也不能用 shallowRef + triggerRef。
+  //
+  // 原因：isXxxSubscribed(id) 在每张卡片里各调一次 .has(id)。
+  //   - 普通 ref + 整体替换 Set → 所有 .has() 依赖一次性全失效，
+  //     点一次订阅 = 整页（含视口外）所有卡片重渲染。
+  //   - shallowRef + triggerRef 同样是一次性全失效，并不能按 ID 精确通知，
+  //     只是把失效推迟到 triggerRef 那一刻，行为没有变好。
+  //   - Vue 的 reactive collection 代理会按 key 记录依赖：
+  //     .add(k)/.delete(k) 只通知依赖 k 的那些 .has(k)。
+  //     因此只要原地增删，只有真正变化的那个 id 的卡片会重渲染。
   const subscribedArtistIds = ref<Set<string>>(new Set())
   const subscribedCityIds = ref<Set<string>>(new Set())
   const subscribedEventIds = ref<Set<number>>(new Set())
 
+  /**
+   * 用「原地增删」把 current 同步成 next，保留按 ID 的精确失效粒度。
+   *
+   * 不能写成 target.value = next：整体替换会让所有 .has(id) 的依赖全部失效。
+   * 也不能写成 clear() 再 add：clear() 触发的是 ITERATE_KEY，
+   * 而迭代方（subscribe/index.vue 的 [...subscribedCityIds]）依赖的正是它，
+   * 那样仍然会整页失效；逐 key delete 则不会误伤未变化的 id。
+   */
+  function applyIdSetDiff<T>(target: Ref<Set<T>>, next: Set<T>): void {
+    const cur = target.value
+    // 先删：只删 next 里没有的。快照一份避免边遍历边改。
+    for (const id of Array.from(cur)) {
+      if (!next.has(id)) cur.delete(id)
+    }
+    // 后加：只加 cur 里没有的，避免把已订阅的 id 无谓地重新 notify 一遍。
+    for (const id of next) {
+      if (!cur.has(id)) cur.add(id)
+    }
+  }
+
   // ── 富列表（订阅页使用） ──
-  const myArtists = ref<ArtistCardVO[]>([])
+  //
+  // myCities 必须保持 ref：updateCityExtra() 会就地写 c.extra 做乐观更新与回滚
+  // （L301/L307），shallowRef 下这类嵌套写入不会触发更新。
+  // 其余四个是纯只读消费（页面只渲染，不改元素），用 shallowRef 省掉几百个 VO
+  // 及其嵌套 artist/event 子对象的 Proxy 开销 —— 翻页时整份数组重建不再需要
+  // 把所有字段重新代理一遍。数组整体的替换（赋值 new Array）照常触发响应式。
+  const myArtists = shallowRef<ArtistCardVO[]>([])
   const myCities = ref<CityCardVO[]>([])
-  const myEventsOngoing = ref<EventCardVO[]>([])
-  const myEventsExpired = ref<EventCardVO[]>([])
-  const artistRelatedEvents = ref<EventCardVO[]>([])
+  const myEventsOngoing = shallowRef<EventCardVO[]>([])
+  const myEventsExpired = shallowRef<EventCardVO[]>([])
+  const artistRelatedEvents = shallowRef<EventCardVO[]>([])
 
   // myEventsOngoing / myEventsExpired 各自的服务端 total，用于触底加载的终止判断。
   // 没有它的话页面只能靠"返回条数 < pageSize"猜，容易多打一次空请求或提前停止。
@@ -79,22 +116,30 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     _fetchingIds.value = true
     const seq = ++_idsSeq
     try {
-      const [a, c, e, eExp] = await Promise.allSettled([
+      // 三个都是 ids_only：只取 id 数组，不拉任何卡片 VO。
+      // 早前活动侧为了拿 id 集合，拉的是 ongoing + expired 各 100 条完整
+      // EventCardVO（每条都带艺人/场次/时间等嵌套结构），为了几十个 id 传回
+      // 几百 KB JSON —— 这是订阅态反显最大的开销来源，且在 App 端表现为进页卡顿。
+      const [a, c, e] = await Promise.allSettled([
         subscriptionApi.myArtistIds(),
         subscriptionApi.myCityIds(),
-        subscriptionApi.myEvents('ongoing', 1, 100),
-        subscriptionApi.myEvents('expired', 1, 100),
+        subscriptionApi.myEventIds(),
       ])
       // 已登出 / 已有更新的请求 → 丢弃本次响应
       if (seq !== _idsSeq) return
-      if (a.status === 'fulfilled') subscribedArtistIds.value = new Set(a.value.ids)
-      if (c.status === 'fulfilled') subscribedCityIds.value = new Set(c.value.ids)
-      if (e.status === 'fulfilled') subscribedEventIds.value = new Set(e.value.list.map((x) => x.event.id))
-      if (eExp.status === 'fulfilled') {
-        // 合并 expired，只追加不覆盖（两者都可能超过 100 条，集合用于“反显”，够用）
-        const next = new Set(subscribedEventIds.value)
-        for (const x of eExp.value.list) next.add(x.event.id)
-        subscribedEventIds.value = next
+      if (a.status === 'fulfilled') applyIdSetDiff(subscribedArtistIds, new Set(a.value.ids))
+      if (c.status === 'fulfilled') applyIdSetDiff(subscribedCityIds, new Set(c.value.ids))
+      if (e.status === 'fulfilled') {
+        // 后端 user_subscriptions.target_id 是字符串列（artist/city 用 uuid），
+        // 活动 id 存进去也是字符串；而 subscribedEventIds 全 App 按 number 查
+        // （isEventSubscribed(ev.id) 传的是 number），所以这里必须转。
+        // Number('') === 0，脏数据会静默变成 id 0，用 isSafeInteger 挡掉。
+        const ids = new Set<number>()
+        for (const raw of e.value.ids) {
+          const n = Number(raw)
+          if (Number.isSafeInteger(n) && n > 0) ids.add(n)
+        }
+        applyIdSetDiff(subscribedEventIds, ids)
       }
     } finally {
       // 无条件解锁：本方法是 _fetchingIds 的唯一持有者，
@@ -111,7 +156,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       const r = await subscriptionApi.myArtists()
       if (seq !== _artistsSeq) return
       myArtists.value = r.list
-      subscribedArtistIds.value = new Set(r.list.map((x) => x.artist.id))
+      applyIdSetDiff(subscribedArtistIds, new Set(r.list.map((x) => x.artist.id)))
     } finally {
       if (seq === _artistsSeq) loading.value.artists = false
     }
@@ -124,7 +169,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       const r = await subscriptionApi.myCities()
       if (seq !== _citiesSeq) return
       myCities.value = r.list
-      subscribedCityIds.value = new Set(r.list.map((x) => x.city.id))
+      applyIdSetDiff(subscribedCityIds, new Set(r.list.map((x) => x.city.id)))
     } finally {
       if (seq === _citiesSeq) loading.value.cities = false
     }
@@ -171,7 +216,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       // 顺手同步 id 集合（只追加，不覆盖另一个 status 的）
       const next = new Set(subscribedEventIds.value)
       for (const v of r.list) next.add(v.event.id)
-      subscribedEventIds.value = next
+      applyIdSetDiff(subscribedEventIds, next)
     } finally {
       // 只有最新那次请求负责关闭 loading，避免旧请求提前把 loading 置 false
       if (seq === _eventsSeq[status]) loading.value[lk] = false
@@ -208,7 +253,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     // 乐观更新
     const next = new Set(subscribedArtistIds.value)
     if (had) next.delete(id); else next.add(id)
-    subscribedArtistIds.value = next
+    applyIdSetDiff(subscribedArtistIds, next)
 
     try {
       if (had) {
@@ -223,7 +268,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       // 回滚
       const rollback = new Set(subscribedArtistIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
-      subscribedArtistIds.value = rollback
+      applyIdSetDiff(subscribedArtistIds, rollback)
       throw e
     }
   }
@@ -232,7 +277,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     const had = subscribedCityIds.value.has(id)
     const next = new Set(subscribedCityIds.value)
     if (had) next.delete(id); else next.add(id)
-    subscribedCityIds.value = next
+    applyIdSetDiff(subscribedCityIds, next)
 
     try {
       if (had) {
@@ -245,7 +290,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     } catch (e) {
       const rollback = new Set(subscribedCityIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
-      subscribedCityIds.value = rollback
+      applyIdSetDiff(subscribedCityIds, rollback)
       throw e
     }
   }
@@ -254,7 +299,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     const had = subscribedEventIds.value.has(id)
     const next = new Set(subscribedEventIds.value)
     if (had) next.delete(id); else next.add(id)
-    subscribedEventIds.value = next
+    applyIdSetDiff(subscribedEventIds, next)
 
     try {
       if (had) {
@@ -268,7 +313,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     } catch (e) {
       const rollback = new Set(subscribedEventIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
-      subscribedEventIds.value = rollback
+      applyIdSetDiff(subscribedEventIds, rollback)
       throw e
     }
   }
@@ -307,9 +352,9 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     _eventsSeq.expired++
     _fetchingIds.value = false
 
-    subscribedArtistIds.value = new Set()
-    subscribedCityIds.value = new Set()
-    subscribedEventIds.value = new Set()
+    applyIdSetDiff(subscribedArtistIds, new Set())
+    applyIdSetDiff(subscribedCityIds, new Set())
+    applyIdSetDiff(subscribedEventIds, new Set())
     myArtists.value = []
     myCities.value = []
     myEventsOngoing.value = []

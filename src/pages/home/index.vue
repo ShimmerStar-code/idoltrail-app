@@ -1,6 +1,6 @@
 <template>
   <PageLayout>
-    <page-meta :page-style="searchKeyword || cityPickerVisible ? 'overflow: hidden' : ''" />
+    <page-meta :page-style="searchActive || cityPickerVisible ? 'overflow: hidden' : ''" />
     <view class="page">
       <!-- 顶部状态栏占位 -->
       <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
@@ -43,6 +43,7 @@
             :focus="searchActive"
             @focus="searchActive = true"
             @input="onSearchInput"
+            @confirm="onSearchConfirm"
             confirm-type="search"
           />
           <text v-if="searchActive" class="search-close" @click="closeSearch"
@@ -161,11 +162,34 @@
 
       <!-- 搜索遮盖层：暗色全屏背景 -->
       <view
-        v-if="searchKeyword"
+        v-if="searchKeyword || showSearchHistory"
         class="search-backdrop"
         @click="closeSearch"
         @touchmove.stop.prevent
       />
+      <!-- 搜索历史：搜索框获得焦点但还没输入时展示，点一条直接回填并搜索 -->
+      <view v-if="showSearchHistory" class="history-mask" :style="{ top: headerBottom + 'px' }">
+        <template v-if="searchHistory.length">
+          <view class="history-head">
+            <text class="history-title">搜索历史</text>
+            <text class="history-clear" @click="onClearHistory">清空</text>
+          </view>
+          <view class="history-tags">
+            <view
+              v-for="item in searchHistory"
+              :key="item.q"
+              class="history-tag"
+              hover-class="history-tag--hover"
+              @click="onHistoryTap(item.q)"
+            >
+              <text class="history-tag-text">{{ item.q }}</text>
+            </view>
+          </view>
+        </template>
+        <view v-else class="history-empty">
+          <text class="history-empty-text">还没有搜索记录</text>
+        </view>
+      </view>
       <!-- 搜索结果：紧贴 header 底部，可上下滚动 -->
       <scroll-view
         v-if="searchKeyword"
@@ -174,7 +198,10 @@
         :style="{ top: headerBottom + 'px' }"
         @touchmove.stop
       >
-        <SearchOverlay :keyword="searchKeyword" @navigate="closeSearch" />
+        <SearchOverlay
+          :keyword="searchKeyword"
+          @navigate="onSearchResultTap"
+        />
       </scroll-view>
 
       <!-- 自定义 TabBar -->
@@ -203,6 +230,12 @@ import { useSearchStore } from "@/stores/search";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
+import {
+  getSearchHistory,
+  addSearchHistory,
+  clearSearchHistory,
+  type SearchHistoryItem,
+} from "@/utils/searchHistory";
 import { computed, onMounted, ref, watch } from "vue";
 import { onShow, onPageScroll, onHide, onUnload } from "@dcloudio/uni-app";
 import { GENRES } from "@/constants/genres";
@@ -230,7 +263,11 @@ const nowTick = ref(0);
 // append（20→40→60…），而首页 onShow 早前不重拉 loadFeatured，于是用户浏览几屏列表
 // 再回首页，featuredLive 就会把上百条全塞进 swiper —— 既是错误的首页内容，
 // 也是实打实的卡死（一屏上百个复杂卡片）。
-const FEATURED_MAX = 10;
+//
+// 10 条是 swiper 里真实渲染的复杂卡片（每张带头像 + 若干标签），10 张同时实例化
+// 在低端机上首屏就要多花几百毫秒；首页精选只作「入口」用，看细节一律进列表页，
+// 所以收到 5 条更合适 —— 一屏能放下，还多留 5 张节点的预算给下面的推荐位。
+const FEATURED_MAX = 5;
 const featuredLive = computed(() => {
   void nowTick.value; // 读一下建立依赖：onShow / 切换城市会自增触发重过滤
   return (store.list?.list ?? [])
@@ -243,6 +280,8 @@ let scrollMeasureTimer: ReturnType<typeof setTimeout> | null = null;
 // 测量搜索框位置统一走这里：searchActive 打开时（0ms）与滚动停止后（100ms）
 // 是同一段逻辑，早前是两处裸 setTimeout，句柄都没保存，切页后仍会回调已卸载的节点。
 let headerMeasureTimer: ReturnType<typeof setTimeout> | null = null;
+/** 定位兜底定时器句柄（定位全程可能长达 15s，切页时必须能撤掉） */
+let locateSafeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function measureSearchBar() {
   uni
@@ -275,6 +314,12 @@ function clearHomeTimers() {
     clearTimeout(headerMeasureTimer);
     headerMeasureTimer = null;
   }
+  // 定位兜底定时器同样必须清：切走 tab 时定位还在路上，
+  // 15s 后兜底触发会发一轮 loadFeatured，用户回来看到的是「首页莫名刷新了」。
+  if (locateSafeTimer) {
+    clearTimeout(locateSafeTimer);
+    locateSafeTimer = null;
+  }
 }
 
 function onSearchInput() {
@@ -285,6 +330,61 @@ function onSearchInput() {
     return;
   }
   searchTimer = setTimeout(() => searchStore.searchAll(kw), 500);
+}
+
+// ── 搜索历史 ──
+const searchHistory = ref<SearchHistoryItem[]>([]);
+
+/** 面板只在「已聚焦 + 还没输入关键词」时露出，有输入时让位给搜索结果 */
+const showSearchHistory = computed(
+  () => searchActive.value && !searchKeyword.value.trim(),
+);
+
+function loadSearchHistory() {
+  searchHistory.value = getSearchHistory();
+}
+
+/**
+ * 键盘「搜索」键：这是一次明确提交的搜索。
+ * 除了记历史，还立刻查一次 —— 让用户等满 500ms 防抖属于无谓等待。
+ */
+function onSearchConfirm() {
+  const kw = searchKeyword.value.trim();
+  if (!kw) return;
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+  addSearchHistory(kw);
+  loadSearchHistory();
+  searchStore.searchAll(kw);
+}
+
+/** 点进某条搜索结果：同样是明确提交的搜索，顺带把该词置顶 */
+function onSearchResultTap() {
+  const kw = searchKeyword.value.trim();
+  if (kw) {
+    addSearchHistory(kw);
+    loadSearchHistory();
+  }
+  closeSearch();
+}
+
+function onHistoryTap(q: string) {
+  searchKeyword.value = q;
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+  // 再次写入 = 去重置顶，用户反复搜同一个词时它会保持在最前
+  addSearchHistory(q);
+  loadSearchHistory();
+  searchStore.searchAll(q);
+}
+
+function onClearHistory() {
+  clearSearchHistory();
+  loadSearchHistory();
 }
 
 function closeSearch() {
@@ -319,7 +419,10 @@ async function doLocate() {
   const settle = (city: string) => {
     if (done) return;
     done = true;
-    clearTimeout(safeTimer);
+    if (locateSafeTimer) {
+      clearTimeout(locateSafeTimer);
+      locateSafeTimer = null;
+    }
     locatedCity.value = city;
     currentCity.value = city;
     locating.value = false;
@@ -329,13 +432,19 @@ async function doLocate() {
   const fallback = () => {
     if (done) return;
     done = true;
-    clearTimeout(safeTimer);
+    if (locateSafeTimer) {
+      clearTimeout(locateSafeTimer);
+      locateSafeTimer = null;
+    }
     if (currentCity.value === LOCATING_PLACEHOLDER) currentCity.value = "北京";
     locatedCity.value = "";
     locating.value = false;
     if (activeRegion.value === 0) loadFeatured();
   };
-  const safeTimer = setTimeout(fallback, 15000);
+  // 15s 兜底必须存句柄：定位是逆地理 + 权限弹窗的组合，慢网/用户不点授权时
+  // 可能挂满 15s。这期间用户切走 tab（onHide 不卸载）的话，定时器照样触发，
+  // 回来时又发一轮 loadFeatured，表现为「首页自己刷新了一下」。
+  locateSafeTimer = setTimeout(fallback, 15000);
 
   try {
     // 坐标定位优先（wgs84 系统定位 + 服务端天地图逆地理），失败时
@@ -393,8 +502,9 @@ function loadFeatured() {
     // 全国
     params.country = "CN";
   }
-  // 2 (全球) 不过滤；首屏轮播只需 10 条
-  store.fetchList({ ...params, page_size: 10 });
+  // 2 (全球) 不过滤；首屏轮播只需 FEATURED_MAX 条，
+  // page_size 与渲染上限对齐：多拉的条数既不显示，又会进 store 缓存撑大响应体
+  store.fetchList({ ...params, page_size: FEATURED_MAX });
 }
 
 async function refreshSubscriptionState() {
@@ -419,9 +529,13 @@ onMounted(() => {
   if (userStore.isLoggedIn) {
     notifStore.fetchUnreadCount();
   }
+  loadSearchHistory();
 });
 
 watch(searchActive, (val) => {
+  // 进入搜索态时读一次历史：可能在别的页面（如搜索结果页）新增过，
+  // 也可能刚被清空，直接以 storage 为准
+  if (val) loadSearchHistory();
   if (!val) return;
   scheduleHeaderMeasure(0);
 });
@@ -476,10 +590,12 @@ function toggleNotifPanel() {
   showNotifPanel.value = !showNotifPanel.value;
 }
 
+// 首页分类入口。code 是 URL slug，由 event/list.vue 的 TYPE_SLUG_TO_CODE
+// 转成后端 event_type_ref.type_code。label 与参照表 name_cn 保持一致。
 const eventTypes = [
   { code: "concert", label: "演唱会", img: "/static/icons/concert.svg" },
   {
-    code: "music_festival",
+    code: "festival",
     label: "音乐节",
     img: "/static/icons/festival.svg",
   },
@@ -605,6 +721,70 @@ function goTypeList(i: number) {
   z-index: 99;
   padding: 20rpx 30rpx 30rpx;
   box-sizing: border-box;
+}
+
+/* 搜索历史面板：与 .search-mask 同层级同贴顶位置，区别是不需要滚动（最多 10 条） */
+.history-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 99;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 0 0 30rpx 30rpx;
+  box-shadow: 0 12rpx 40rpx rgba(0, 0, 0, 0.18);
+  padding: 8rpx 30rpx 30rpx;
+  box-sizing: border-box;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 0 12rpx;
+}
+.history-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(35, 34, 39, 1);
+}
+.history-clear {
+  font-size: 24rpx;
+  color: rgba(153, 153, 153, 1);
+  padding: 8rpx 4rpx;
+}
+.history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  padding-top: 4rpx;
+}
+.history-tag {
+  display: flex;
+  align-items: center;
+  /* 关键词可能是一整首歌名，不限宽会把面板撑成一行一个；限宽后长词省略号收尾 */
+  max-width: 100%;
+  padding: 14rpx 28rpx;
+  border-radius: 32rpx;
+  background: rgba(245, 245, 245, 1);
+}
+.history-tag--hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.history-tag-text {
+  font-size: 26rpx;
+  color: rgba(51, 51, 51, 1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-empty {
+  padding: 60rpx 0;
+  text-align: center;
+}
+.history-empty-text {
+  font-size: 24rpx;
+  color: rgba(187, 187, 187, 1);
 }
 
 /* Scroll */

@@ -13,7 +13,7 @@
         <view class="avatar-wrap">
           <image
             class="avatar"
-            :src="vo.event.artist?.avatar_url || '/static/icons/default-avatar.png'"
+            :src="getArtistAvatarSrc(vo.event.artist ?? undefined)"
             mode="aspectFill"
             lazy-load
           />
@@ -60,6 +60,7 @@
 import { computed } from 'vue'
 import type { EventCardVO } from '@/types/subscription'
 import { formatCity } from '@/constants/cities'
+import { getArtistAvatarSrc } from '@/utils/avatar'
 
 const props = withDefaults(defineProps<{
   vo: EventCardVO

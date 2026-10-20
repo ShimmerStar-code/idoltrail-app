@@ -42,6 +42,12 @@ export interface EventTicket {
   url: string
 }
 
+export interface EventContributor {
+  user_id: number
+  nickname: string
+  avatar_url?: string
+}
+
 export interface EventDetail extends Event {
   description: string
   official_url: string
@@ -50,6 +56,8 @@ export interface EventDetail extends Event {
   genres: { genre_code: string }[]
   /** 购票入口，App 上只展示 name，点击才用 url 跳出去 */
   tickets?: EventTicket[]
+  /** 贡献者：通过「上传情报」上报该活动、被运营核实采用的粉丝 */
+  contributors?: EventContributor[]
   notice?: string
   likes_count?: number      // 真实点赞数（后端返回）
   is_liked?: boolean        // 当前用户是否已点赞

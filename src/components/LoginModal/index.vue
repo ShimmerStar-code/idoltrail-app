@@ -122,6 +122,7 @@ import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
 import { getAgreementVersion } from '@/constants/agreements'
 import { isAppleIAPPlatform } from '@/utils/nativePay'
+import { APPLE_LOGIN_ENABLED } from '@/utils/env'
 import {
   isOneKeyLoginSupported,
   isOneKeyDisabledForever,
@@ -190,8 +191,14 @@ const buttonText = computed(() => {
   return '登录'
 })
 
-/** Sign in with Apple 仅在 iOS 端展示（Android 走短信登录即可） */
-const showAppleLogin = computed(() => isAppleIAPPlatform())
+/**
+ * Sign in with Apple 展示条件：iOS 端 **且** 开关已打开。
+ *
+ * 之前只判平台（isAppleIAPPlatform），于是 iOS 用户必然看到 Apple 登录按钮，
+ * 而 entitlement 并未声明、协议也未披露该数据采集，真机点了直接失败。
+ * 现在必须 APPLE_LOGIN_ENABLED=true 才展示，详见 src/utils/env.ts 的说明。
+ */
+const showAppleLogin = computed(() => APPLE_LOGIN_ENABLED && isAppleIAPPlatform())
 const canAppleLogin = computed(
   () => agreed.value && !appleSubmitting.value && !submitting.value && !signingAgreements.value,
 )

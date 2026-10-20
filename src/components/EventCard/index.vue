@@ -15,7 +15,9 @@
   props:
     event          Event           后端返回的活动项
     entryGenreCode string?         入口 genre code（保留兼容，当前不参与取色）
-    variant        'list'|'swiper' 默认 'list'；swiper 模式撑满 swiper-item
+    variant        'list'|'swiper'|'flat' 默认 'list'；swiper 模式撑满 swiper-item；
+                   flat 用于嵌在已有水平留白的容器里（如偶像详情页 .section-pad），
+                   只保留垂直间距，避免与容器 margin 叠加成双重缩进
 
   emits:
     (e: 'select', id: number)      卡片被点击
@@ -23,8 +25,8 @@
 <template>
   <view
     class="event-card"
-    :class="[`event-card--${variantCls}`]"
-    :style="{ background: theme.base }"
+    :class="cardCls"
+    :style="cardStyle"
     @click="$emit('select', event.id)"
   >
     <!-- 头部：艺人头像(叠加) + 艺人名 + 徽章 + 书签 -->
@@ -63,10 +65,7 @@
       </view>
       <text
         class="artist-name"
-        :style="{
-          marginLeft: artists.length > 1 ? '8%' : '0',
-          color: theme.ink,
-        }"
+        :style="artistNameStyle"
       >
       {{ artistLineText }}
       </text>
@@ -139,7 +138,7 @@ import { getArtistAvatarSrc } from "@/utils/avatar";
 const props = defineProps<{
   event: Event;
   entryGenreCode?: string;
-  variant?: "list" | "swiper";
+  variant?: "list" | "swiper" | "flat";
   /**
    * 艺人详情页专用：当前浏览的艺人。传入后卡片取色以该艺人为准，
    * 而非活动主艺人（artists[0]）。
@@ -162,7 +161,8 @@ const userStore = useUserStore();
 const variantCls = computed(() => props.variant || "list");
 
 // ── 艺人 ──
-// 使用统一的默认头像（与详情页保持一致）
+// 活动没有挂任何艺人时的占位图。这里拿不到 type/gender，
+// 只能落到统一入口的男性兜底（getArtistAvatarSrc() 无参 = avatarKind() 的 else 分支）。
 const defaultAvatar = getArtistAvatarSrc();
 
 interface ArtistItem {
@@ -196,6 +196,17 @@ const theme = computed(() => {
 
 // 胶囊图标：与艺人名同色系（浅底上的深色前景）
 const chipIconColor = computed(() => theme.value.ink);
+
+// ── 渲染用样式/类名 ──
+// 模板里直接写 :class="[...]" / :style="{...}" 会在每次重渲染时新建数组与对象，
+// 让 Vue 无法做引用比对短路。列表页重渲染频繁（见 useVirtualList），
+// 这里预先算好并缓存，渲染时只传稳定引用。
+const cardCls = computed(() => [`event-card--${variantCls.value}`]);
+const cardStyle = computed(() => ({ background: theme.value.base }));
+const artistNameStyle = computed(() => ({
+  marginLeft: artists.value.length > 1 ? "8%" : "0",
+  color: theme.value.ink,
+}));
 
 const artistLineText = computed(() => {  const list = artists.value;
   if (!list.length) return "";
@@ -289,6 +300,13 @@ async function onBookmarkTap() {
   height: calc(100% - 24rpx);
   display: flex;
   flex-direction: column;
+}
+
+/* flat 模式：嵌在已经有水平留白的容器里用（偶像详情页的 .section-pad）。
+   list 模式自带 margin: 0 30rpx，套在 .section-pad(margin: 0 30rpx) 里会
+   变成左右各 60rpx，卡片比首页/列表页明显窄一圈。这里只保留垂直间距。 */
+.event-card--flat {
+  margin: 24rpx 0 0;
 }
 
 /* ── 头部 ── */

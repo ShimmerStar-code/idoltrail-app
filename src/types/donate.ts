@@ -8,10 +8,18 @@ export type DonationChannel =
   | 'alipay_app' // 支付宝 App 支付（Android）
   | 'apple_iap' // iOS StoreKit 内购
 
-/** POST /donations 请求（V3 JSAPI，备用） */
+/** POST /donations 请求 */
 export interface DonationOrderRequest {
   /** 金额（单位：分，最小 1 分 = 0.01 元） */
   amount: number
+  /**
+   * 支付渠道。省略等价 `wx_jsapi`（与后端默认值一致）。
+   *
+   * Android 必须显式传 `wx_app`：不传会落到小程序 JSAPI 分支，
+   * 服务端因取不到 openid 而返回 409（`CodeOpenIDMissing`），
+   * 表现为「点了没反应」。
+   */
+  channel?: DonationChannel
 }
 
 /** 小程序调起微信支付所需的 6 个字段（从后端 prepay_params 取，V3 JSAPI 备用） */
@@ -25,10 +33,18 @@ export interface JSAPIPrepayParams {
   paySign: string
 }
 
-/** POST /donations 响应（V3 JSAPI，备用） */
+/** POST /donations 响应 */
 export interface DonationOrderResponse {
   out_trade_no: string
-  prepay_params: JSAPIPrepayParams
+  /** 服务端实际落库的渠道，与请求一致（回显便于排障） */
+  channel: DonationChannel
+  /** 仅 wx_jsapi 渠道返回 */
+  prepay_params?: JSAPIPrepayParams
+  /**
+   * 仅 wx_app 渠道返回；原样透传给
+   * `uni.requestPayment({ provider: 'wxpay', orderInfo })`，不可自行解析或重组。
+   */
+  order_info?: string
   /** RFC3339 ISO8601 */
   expire_at: string
 }

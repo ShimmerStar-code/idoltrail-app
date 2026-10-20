@@ -31,8 +31,7 @@
          "path": "pages/artist/by-country",
          "style": {
             "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "enablePullDownRefresh": true
+            "navigationStyle": "custom"
          }
       },
       {
@@ -135,6 +134,13 @@
                "path": "detail",
                "style": {
                   "navigationBarTitleText": "活动详情",
+                  "navigationStyle": "custom"
+               }
+            },
+            {
+               "path": "submit",
+               "style": {
+                  "navigationBarTitleText": "",
                   "navigationStyle": "custom"
                }
             }

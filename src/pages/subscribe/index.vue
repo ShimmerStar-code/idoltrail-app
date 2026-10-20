@@ -11,10 +11,6 @@
         <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
           <view class="header-row">
             <text class="title">我的订阅</text>
-            <!-- + 号只在城市 tab 显示（直接弹 CityPicker） -->
-            <view v-if="activeTab === 2" class="add-btn" @click="onAddCity">
-              <text class="add-text">+</text>
-            </view>
           </view>
           <!-- 三 tab -->
           <view class="tab-switch">
@@ -27,6 +23,15 @@
             >
               <text class="tab-text">{{ t }}</text>
             </view>
+          </view>
+          <!-- 订阅城市：放在 tab 正下方而不是标题栏。
+               原来标题右侧是一个 60rpx 的白底圆点，只有「+」，在真机上只有约 30px，
+               夹在大标题里几乎看不见，用户根本不知道能点。
+               现在改成整行、带图标的描边按钮，放在 tab 切换条下方常驻（不随列表滚动），
+               进入城市 tab 就能看到。 -->
+          <view v-if="activeTab === 2" class="add-city-btn" @click="onAddCity">
+            <uni-icons type="plus" size="17" color="#8A5600" />
+            <text class="add-city-text">订阅城市</text>
           </view>
         </view>
 
@@ -44,8 +49,15 @@
 
           <!-- ── Tab 0 偶像 ── -->
           <template v-if="activeTab === 0">
+            <view class="tab-tip">{{ TAB_TIPS[0] }}</view>
+            <LoginPrompt
+              v-if="!isLoggedIn"
+              title="登录后查看你的订阅"
+              sub="订阅偶像、活动和城市，有变动时第一时间通知你"
+              reason="subscribe_page"
+            />
             <view
-              v-if="store.myArtists.length === 0 && !store.loading.artists"
+              v-else-if="store.myArtists.length === 0 && !store.loading.artists"
               class="empty"
             >
               还没有订阅的偶像
@@ -81,6 +93,7 @@
 
           <!-- ── Tab 1 活动 ── -->
           <template v-if="activeTab === 1">
+            <view class="tab-tip">{{ TAB_TIPS[1] }}</view>
             <!-- 二级 segment -->
             <view class="segment">
               <view
@@ -98,7 +111,13 @@
                 <text class="seg-text">已失效</text>
               </view>
             </view>
-            <view v-if="currentEventList.length === 0 && !isEventsLoading" class="empty">
+            <LoginPrompt
+              v-if="!isLoggedIn"
+              title="登录后查看你的订阅"
+              sub="订阅偶像后，这里会展示与你相关的活动"
+              reason="subscribe_page"
+            />
+            <view v-else-if="currentEventList.length === 0 && !isEventsLoading" class="empty">
               暂无{{ eventStatus === "ongoing" ? "进行中" : "已失效" }}的活动
             </view>
             <!-- 窗口化：只渲染视口附近的卡片（三个 tab 共用同一个 scroll-view，
@@ -118,8 +137,15 @@
 
           <!-- ── Tab 2 城市 ── -->
           <template v-if="activeTab === 2">
+            <view class="tab-tip">{{ TAB_TIPS[2] }}</view>
+            <LoginPrompt
+              v-if="!isLoggedIn"
+              title="登录后查看你的订阅"
+              sub="订阅你常去的城市，有活动第一时间通知你"
+              reason="subscribe_page"
+            />
             <view
-              v-if="store.myCities.length === 0 && !store.loading.cities"
+              v-else-if="store.myCities.length === 0 && !store.loading.cities"
               class="empty"
             >
               还没有订阅的城市
@@ -157,6 +183,7 @@ import PageLayout from "@/components/PageLayout/index.vue";
 import ArtistGridCell from "@/components/Subscribe/ArtistGridCell.vue";
 import CitySubCard from "@/components/Subscribe/CitySubCard.vue";
 import EventCard from "@/components/EventCard/index.vue";
+import LoginPrompt from "@/components/LoginPrompt/index.vue";
 import TabBar from "@/components/TabBar/index.vue";
 import CityPicker from "@/components/CityPicker/index.vue";
 import { useSubscribeStore } from "@/stores/subscribe";
@@ -187,6 +214,15 @@ const eventStatus = ref<"ongoing" | "expired">("ongoing");
 const EVENT_PAGE_SIZE = 20;
 
 const tabs = ["偶像", "活动", "城市"];
+
+// 每个 tab 顶部的一句说明，回答「订阅这个到底会给我什么」。
+// 放在列表上方而不是 header 里：header 常驻不滚动，切 tab 会带动整块高度变化；
+// 放进 scroll-view 后它随内容一起走，切 tab 不会让头部跳动。
+const TAB_TIPS = [
+  "下列偶像关联的活动都将通知您",
+  "已订阅的活动有变动时将通知您",
+  "所选城市的新活动将通知您",
+];
 
 // 当前展示的活动列表（按 status 切）
 const currentEventList = computed<EventCardVO[]>(() =>
@@ -237,9 +273,8 @@ onMounted(async () => {
   dictStore.ensureLoaded(["event_type", "event_genre"]).catch(() => {
     /* 静默失败，picker 兜底空数组 */
   });
-  if (!userStore.isLoggedIn) {
-    userStore.requireLogin({ dismissible: true, reason: "subscribe_page" });
-  }
+  // 不在这里 requireLogin：进「我的订阅」是浏览行为，未登录也应能打开。
+  // 页面用 LoginPrompt 展示登录入口，用户点了才弹登录框（见 template 各 tab 首屏）。
   // ⚠️ 这里不要再调 loadAllTabs()：
   // uni-app 页面生命周期是 onLoad → onShow → onReady → mounted，
   // onShow 必然先于 onMounted 触发，两处都拉就是首次进页打两遍（5 个接口 → 10 个请求）。
@@ -431,8 +466,12 @@ function voToEvent(vo: EventCardVO): Event {
     artists: vo.event.artist
       ? ([
           {
+            // artist_id 与 theme_color 都要传：EventCard 的取色靠这两者，
+            // 缺失任一个都会退化成中性灰（运营未配 theme_color 时靠 id 哈希兜底）
+            artist_id: vo.event.artist.id,
             artist_name: vo.event.artist.name,
             avatar_url: vo.event.artist.avatar_url,
+            theme_color: vo.event.artist.theme_color,
           },
         ] as any)
       : [],
@@ -476,21 +515,42 @@ function voToEvent(vo: EventCardVO): Event {
   color: rgba(51, 51, 51, 1);
 }
 
-.add-btn {
-  width: 60rpx;
-  height: 60rpx;
-  border-radius: 30rpx;
-  background: #fff;
+/* 订阅城市：整行描边按钮，挂在 tab 下方。
+   高度 88rpx（约 44pt），满足移动端可点区域下限。
+   原来用实心 #fea500 配 30rpx 白字，反馈是「颜色太浓、字看不清」。
+   改成浅橙底 + 同色系描边 + 深棕字：
+     底 rgba(254,165,0,.10) 叠在页面 #fff 上 → 实际 rgb(255,246,230)
+     字 #8A5600 → 实测对比度 5.74:1，达 WCAG AA（4.5:1）
+   （中途试过 #B87503，只有 3.50:1，不达标，已弃用；
+     实心橙底 30rpx 白字本身就只有约 1.9:1，这就是看不清的根因。） */
+.add-city-btn {
+  margin-top: 20rpx;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: rgba(254, 165, 0, 0.1);
+  border: 2rpx solid rgba(254, 165, 0, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.06);
 }
-.add-text {
-  font-size: 36rpx;
-  font-weight: 500;
-  color: #333;
+.add-city-text {
+  margin-left: 10rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #8a5600;
   line-height: 1;
+}
+
+/* tab 说明文案：回答「订阅这个会给我什么」，字号小、灰调，不与列表内容抢注意力。
+   放在 scroll-view 内，天然跟随它的 width:95% 居中，
+   所以不要再加左右 padding，否则会比下方列表内容缩进一截。
+   颜色 #666 而非项目常用的 #999：24rpx(≈13.2pt) 白底上
+   #999 只有 2.85:1（连 AA-large 3.0 都不到），#666 为 5.74:1。 */
+.tab-tip {
+  font-size: 24rpx;
+  color: #666;
+  line-height: 1.5;
+  padding: 4rpx 0 20rpx;
 }
 
 .tab-switch {

@@ -14,8 +14,10 @@
 npm install
 
 # 配置环境变量：手机/模拟器访问不到 localhost，必须填局域网或公网地址
-cp .env.example .env
-# 编辑 .env，把 VITE_API_BASE_URL 改成后端真实地址
+# .env.dev / .env.prod 已随仓库入库，一般无需改动；
+# 需要临时换地址时建 .env.dev.local（不入库），不要直接改这两个文件。
+# 本地调试 uniCloud 云函数（univerify-exchange / unipush-send）时，
+# 需自行创建 .env 并填 UNIVERIFY_* / UNIPUSH_* 密钥，详见 .env.dev 末尾注释。
 
 # HBuilderX 导入本目录 → 运行到 Android / iOS
 # 或用 CLI：

@@ -157,6 +157,17 @@
                 >
               </view>
             </view>
+
+            <!-- 贡献者：这条活动信息是谁提供的。粉丝上报并被采用才有，运营直接录入的没有 -->
+            <view v-if="contributorNames" class="card-contributor-row">
+              <image
+                class="card-type-icon"
+                src="/static/detail_icon/contributor.svg"
+                mode="aspectFit"
+              />
+              <text class="card-contributor-label">贡献者：</text>
+              <text class="card-contributor-name">{{ contributorNames }}</text>
+            </view>
           </view>
         </view>
 
@@ -178,7 +189,7 @@
           >
             <view class="session-tabs">
               <view
-                v-for="(s, i) in d.sessions"
+                v-for="(s, i) in visibleSessions"
                 :key="s.id || i"
                 class="session-tab"
                 :class="{ 'session-tab--active': i === activeSessionIdx }"
@@ -263,7 +274,7 @@
                 }}</text>
                 <view v-else class="dtxt-list">
                   <text
-                    v-for="(t, i) in currentSession.times"
+                    v-for="(t, i) in visibleSessionTimes"
                     :key="i"
                     class="dtxt-list-item"
                     >{{ formatSessionTime(t) }}</text
@@ -325,7 +336,7 @@
           <scroll-view scroll-x class="artist-scroll">
             <view class="artist-list">
               <view
-                v-for="(a, i) in d.artists"
+                v-for="(a, i) in visibleArtists"
                 :key="`${a.artist_name}-${i}`"
                 class="artist-card"
                 @tap="a.artist_id ? goToArtist(a.artist_id) : undefined"
@@ -375,7 +386,7 @@
           </view>
           <image
             v-if="d.poster_url"
-            :src="d.poster_url"
+            :src="posterSrc"
             class="poster"
             mode="widthFix"
             lazy-load
@@ -420,6 +431,7 @@ import { syncPushToken } from "@/composables/usePush";
 import { switchTabPage } from "@/utils/pages";
 import { getNavBarMetrics } from "@/utils/system";
 import { openExternalUrl } from "@/utils/openExternal";
+import { posterThumb } from "@/utils/image";
 import { formatCity } from "@/constants/cities";
 import { formatCityCountry } from "@/constants/countries";
 import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
@@ -476,16 +488,36 @@ const ROLE_MAP: Record<string, string> = {
 
 const d = computed(() => store.detail);
 
+/** 海报缩略图：原图解码后动辄数 MB，详情页也不该下原图 */
+const posterSrc = computed(() => posterThumb(d.value?.poster_url ?? ""));
+
 // ---- 场次导航 ----
 // 场次区以前是 swiper 轮播，swiper 必须写死高度，于是 .session-content 只能
 // overflow-y:auto 把多出来的场次时间关在卡片内部，形成「卡片里再下拉一次」的
 // 嵌套滚动。现在改为顶部横向导航 + 只渲染当前场次，卡片高度自适应内容。
 const activeSessionIdx = ref(0);
 
+/**
+ * 各区块的展示上限。
+ *
+ * 这些字段来自运营配置，正常量级很小（场次 1~20、阵容 1~8），但**没有硬上限**：
+ * 一旦后台配错数据（导入几百场次），这一页会直接撑爆、点都点不动。
+ * 加切片是零成本的防御，超过部分给出提示而不是静默丢弃。
+ */
+const SESSIONS_MAX = 30;
+const SESSION_TIMES_MAX = 20;
+const ARTISTS_MAX = 12;
+
+const visibleSessions = computed(() => (d.value?.sessions ?? []).slice(0, SESSIONS_MAX));
+
 const currentSession = computed<EventSession | null>(() => {
   const list = d.value?.sessions ?? [];
   return list[activeSessionIdx.value] ?? null;
 });
+
+const visibleSessionTimes = computed(() => currentSession.value?.times?.slice(0, SESSION_TIMES_MAX) ?? []);
+
+const visibleArtists = computed(() => (d.value?.artists ?? []).slice(0, ARTISTS_MAX));
 
 function selectSession(idx: number) {
   activeSessionIdx.value = idx;
@@ -650,6 +682,17 @@ const ticketList = computed(() =>
 function goTicket(t: { name: string; url: string }) {
   openExternalUrl(t.url, `购票链接（${t.name}）`);
 }
+
+// ---- 贡献者 ----
+// 通过「上传情报」上报该演出、被运营核实采用的粉丝。
+// 当前后端一个活动只可能有一个贡献者（convert 总是新建活动），
+// 但接口按数组下发，将来支持把多条线索合并进同一活动时前端不用再改。
+const contributors = computed(() =>
+  (d.value?.contributors ?? []).filter((c) => !!c.nickname?.trim())
+);
+const contributorNames = computed(() =>
+  contributors.value.map((c) => c.nickname.trim()).join("、")
+);
 
 // ── 订阅功能 ──
 const isSubscribed = computed(() =>
@@ -964,6 +1007,35 @@ const noticeItems = computed(() => {
   .card-type-text--ellipsis {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* 贡献者行：与上面的活动类型胶囊同规格，说明「这条信息是谁提供的」。
+     昵称用主题色，既能和品牌胶囊区分开，又和艺人名的高亮方式一致。 */
+  .card-contributor-row {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 24rpx;
+    padding: 10rpx 16rpx;
+    margin-top: 12rpx;
+  }
+  .card-contributor-label {
+    font-size: 22rpx;
+    color: #999;
+    line-height: 1.3;
+    flex-shrink: 0;
+  }
+  .card-contributor-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 22rpx;
+    font-weight: 600;
+    color: #f5a623;
+    line-height: 1.3;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;

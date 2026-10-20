@@ -55,8 +55,11 @@
       </view>
 
       <!-- 底部加载更多 -->
-      <view v-if="notifStore.list.length > 0 && notifStore.list.length < notifStore.total" class="load-more">
+      <view v-if="notifStore.list.length > 0 && notifStore.hasMore" class="load-more">
         <text class="load-more-text" @click="loadMore">加载更多</text>
+      </view>
+      <view v-else-if="notifStore.list.length > 0" class="load-more">
+        <text class="load-more-text">已加载全部消息</text>
       </view>
     </scroll-view>
   </view>
@@ -68,7 +71,7 @@ import { ref, onMounted, nextTick, toRef } from 'vue'
 
 // 模板返回按钮：不能在模板里写 uni.navigateBack()，Vue 会把它解析成组件实例属性
 function goBack() { uni.navigateBack(); }
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { useNotificationStore } from '@/stores/notification'
 import { notificationTypeLabel, notificationTypeColor } from '@/api/notification'
@@ -109,6 +112,16 @@ onLoad(async () => {
   await notifStore.fetchList(1, PAGE_SIZE)
 })
 
+// 从别的页面返回：列表被清空（登出/切号）时补拉一次。
+// 列表还在时**不重拉**——重拉会把页码重置到 1，用户翻到的位置和内容就错位了。
+onShow(() => {
+  if (!userStore.isLoggedIn) return
+  if (notifStore.list.length === 0) {
+    currentPage.value = 1
+    void notifStore.fetchList(1, PAGE_SIZE)
+  }
+})
+
 onMounted(() => {
   const metrics = getNavBarMetrics();
   navPaddingTop.value = metrics.statusBarHeight + metrics.navBarHeight;
@@ -136,7 +149,10 @@ onMounted(() => {
 
 async function loadMore() {
   if (notifStore.loading) return
-  if (notifStore.list.length >= notifStore.total) return
+  // ⚠️ 终止条件必须用 store 的 hasMore（= 服务端已返回条数 < total，且本地未到上限）。
+  // 早期写法是 `list.length >= total`，而 store 里曾把 list 截断到固定条数，
+  // 导致这个条件永远为假 → 下拉到底无限翻页，请求发不完。
+  if (!notifStore.hasMore) return
   currentPage.value++
   await notifStore.fetchList(currentPage.value, PAGE_SIZE)
 }

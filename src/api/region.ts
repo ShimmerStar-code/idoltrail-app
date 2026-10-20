@@ -22,8 +22,8 @@ export const regionApi = {
       '/regions',
       { method: 'GET', data: { name, page, page_size } },
     ),
-  /** 拉全量 City 类型 region（CityPicker 用） */
-  listCities: (page = 1, page_size = 200) =>
+  /** 拉 City 类型 region（CityPicker 用，默认分页 50 条） */
+  listCities: (page = 1, page_size = 50) =>
     request<{ list: RegionItem[]; total: number; page: number; page_size: number }>(
       '/regions',
       { method: 'GET', data: { type: 'City', page, page_size } },

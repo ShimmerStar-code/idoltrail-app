@@ -1,8 +1,8 @@
 {
-    "name" : "偶像轨迹",
+    "name" : "idoltrail",
     "appid" : "__UNI__F1F9279",
     "description" : "演唱会 / 音乐活动信息平台",
-    "versionName" : "1.0.0",
+    "versionName" : "0.1.0",
     "versionCode" : "100",
     "transformPx" : false,
     "app-plus" : {
@@ -78,6 +78,22 @@
                 "capabilities" : {
                     "entitlements" : {
                         "com.apple.developer.associated-domains" : []
+                        /* ── Sign in with Apple ──
+                           保持注释状态，启用需三步同时完成（缺一按钮必失败）：
+
+                             1. Apple Developer 后台为 App ID 启用 Sign in with Apple；
+                             2. 重新生成 provisioning profile；
+                              3. 取消下面这行注释，并把 .env.prod 的
+                                 VITE_APPLE_LOGIN_ENABLED 置为 true。
+
+                           为什么默认注释而不是直接打开：manifest 声明了 entitlement
+                           但描述文件里没有时，云打包会直接失败（签不出包），
+                           那会让整个 App 卡在发不出去的状态，比按钮不显示更糟。
+                           后端 APPLE_CLIENT_ID / APPLE_TEAM_ID / APPLE_KEY_ID /
+                            APPLE_PRIVATE_KEY_PATH 也需就位，见后端 .env.prod。
+
+                        "com.apple.developer.applesignin" : ["Default"]
+                        */
                     }
                 },
                 /* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
@@ -117,7 +133,8 @@
                 },
                 "maps" : {},
                 "oauth" : {
-                    "univerify" : {}
+                    "univerify" : {},
+                    "apple" : {}
                 },
                 "share" : {}
             },

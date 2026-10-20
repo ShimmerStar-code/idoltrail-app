@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="95px" height="95px" viewBox="0 0 95 95" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Instagram</title>
+    <rect x="15.5" y="15.5" width="64" height="64" rx="32" fill="#FFFFFF" stroke="#ECECEC" stroke-width="1"/>
+    <rect x="35" y="29" width="25" height="25" rx="7.5" fill="none" stroke="#333333" stroke-width="2.8"/>
+    <circle cx="47.5" cy="41.5" r="6.2" fill="none" stroke="#333333" stroke-width="2.8"/>
+    <circle cx="55.6" cy="33.4" r="1.9" fill="#333333"/>
+    <text x="47.5" y="66" font-family="PingFangSC-Regular, PingFang SC" font-size="11" font-weight="normal" fill="#333333" text-anchor="middle">Instagram</text>
+</svg>

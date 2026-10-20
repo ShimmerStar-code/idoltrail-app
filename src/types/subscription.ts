@@ -51,12 +51,18 @@ export interface EventBrief {
   end_date: string
   city: string
   genre: string
-  type: string   // 活动类型：Concert / Music_Festival / Fan_Meeting / Anime_Expo / Concert_Hall
+  type: string   // 活动类型：event_type_ref.type_code（CONCERT / FESTIVAL / FAN_MEETING / ANIME_EXPO / CONCERT_HALL）
   status?: string // 存储状态 PUBLISHED/ENDED/CANCELLED...（卡片按其 + end_date 派生“已结束”）
   artist?: {
     id: string
     name: string
     avatar_url: string
+    /**
+     * 艺人主题色，空串表示运营未配置。
+     * EventCard 取色需要 artist_id（哈希兜底）或 theme_color（运营配置），
+     * 两者至少要有一个，否则卡片会退化成中性灰。
+     */
+    theme_color?: string
   } | null
 }
 

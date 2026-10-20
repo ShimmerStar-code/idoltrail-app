@@ -3,6 +3,7 @@ import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import { setAuthExpiredHandler } from '@/utils/request'
+import { syncDefaultAvatars } from '@/utils/defaultAvatar'
 import { hasPrivacyConsent } from '@/utils/privacy'
 import {
   initPush,
@@ -23,6 +24,10 @@ setAuthExpiredHandler(() => {
 
 onLaunch(async () => {
   console.log('[App] Launch')
+
+  // 0) 默认头像本地化：每天首次冷启动静默从 OSS 覆盖一份到本地缓存。
+  //    包内已有一份兜底，本次调用不 await、不阻塞启动；失败就用包内那份。
+  syncDefaultAvatars()
 
   // 1) 隐私合规：首次启动 / 协议版本升级时必须先取得用户同意，
   //    在此之前业务层会拦截一切需要系统授权的 API（定位、通知等）。

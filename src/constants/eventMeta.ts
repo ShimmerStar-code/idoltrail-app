@@ -3,26 +3,55 @@
 
 import type { Event } from "@/types/event"
 
-/** 活动类型下拉项(后端 event_type 枚举) — 唯一权威来源 */
+/**
+ * 活动类型下拉项 —— code 必须与后端 `event_type_ref.type_code` 完全一致
+ * （migration 0051 起为全大写下划线）。
+ *
+ * ⚠️ 历史包袱：0051 之前后端存的是「type_name 空格换下划线」（Concert / Music_Festival /
+ * Fan_Meeting / Anime_Expo / Concert_Hall），与参照表的 type_code 并存。
+ * DB 已统一为 type_code，但客户端与服务端缓存里仍可能残留旧值，
+ * 故 EVENT_TYPE_LEGACY_LABEL 保留旧值映射兜底，避免旧缓存渲染出空白标签。
+ * 新增代码请勿再写入旧值。
+ */
 export const EVENT_TYPE_OPTIONS: { code: Event["type"]; label: string }[] = [
-  { code: "Concert",       label: "演唱会" },
-  { code: "Music_Festival", label: "音乐节" },
-  { code: "Fan_Meeting",   label: "粉丝见面会" },
-  { code: "Anime_Expo",    label: "漫展" },
-  { code: "Concert_Hall",  label: "音乐会" },
+  { code: "CONCERT",       label: "演唱会" },
+  { code: "FESTIVAL",      label: "音乐节" },
+  { code: "FAN_MEETING",   label: "粉丝见面会" },
+  { code: "ANIME_EXPO",    label: "漫展" },
+  { code: "CONCERT_HALL",  label: "音乐会" },
 ]
 
-/** 活动类型 → 中文标签（从 EVENT_TYPE_OPTIONS 派生，卡片 tag 和详情页统一用此）*/
-export const EVENT_TYPE_LABEL: Record<string, string> =
-  Object.fromEntries(EVENT_TYPE_OPTIONS.map((o) => [o.code, o.label]))
+/** 旧 code → 中文，仅用于兜底渲染 0051 之前的残留数据 */
+const EVENT_TYPE_LEGACY_LABEL: Record<string, string> = {
+  Concert:        "演唱会",
+  Music_Festival: "音乐节",
+  Fan_Meeting:   "粉丝见面会",
+  Anime_Expo:    "漫展",
+  Concert_Hall:  "音乐会",
+}
+
+/** 活动类型 → 中文标签（卡片 tag 和详情页统一用此） */
+export const EVENT_TYPE_LABEL: Record<string, string> = {
+  ...EVENT_TYPE_LEGACY_LABEL,
+  ...Object.fromEntries(EVENT_TYPE_OPTIONS.map((o) => [o.code, o.label])),
+}
+
+/**
+ * 取活动类型的中文标签。查不到时返回原值而不是空串，
+ * 避免运营新增了 type_code 但客户端没发版时整块显示空白。
+ */
+export function eventTypeLabel(type?: string | null): string {
+  if (!type) return ""
+  return EVENT_TYPE_LABEL[type] ?? EVENT_TYPE_LABEL[type.toUpperCase()] ?? type
+}
 
 /** @deprecated 英文缩写已废弃，请改用 EVENT_TYPE_LABEL */
 export const EVENT_TYPE_SHORT: Record<string, string> = {
-  Concert: "Cnt",
-  "Music_Festival": "Fmt",
-  "Fan_Meeting": "FM",
-  "Anime_Expo": "Anm",
-  "Concert_Hall": "CH",
+  CONCERT: "Cnt",
+  FESTIVAL: "Fmt",
+  FAN_MEETING: "FM",
+  ANIME_EXPO: "Anm",
+  CONCERT_HALL: "CH",
 }
 
 /** 活动状态下拉项 */

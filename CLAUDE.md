@@ -15,6 +15,7 @@
 
 - 目标平台只有 **App（Android / iOS）**，H5 仅为开发调试用。
 - 条件编译一律用 `#ifdef APP-PLUS` / `#ifndef APP-PLUS`，**全仓不存在 `#ifdef MP-WEIXIN`**。
+- 微信小程序由**独立代码库**维护，不在本工程内编译，详见 CLAUDE.md 顶部说明。
 - 不要引入 `uni.getMenuButtonBoundingClientRect()`（小程序专属），导航栏尺寸统一走 `src/utils/system.ts` 的 `getNavBarMetrics()`。
 
 ### 登录
@@ -107,7 +108,14 @@ src/
 
 ## 环境变量
 
-`.env`（本地不入库敏感信息）与 `.env.example`：
+命名规范为 **`.env.dev` / `.env.prod`** 两份对称配置，**字段集合必须完全一致**（仅取值不同），
+由 `npm run check:env` 在构建期校验（单边字段、非 `VITE_` 变量、UTF-8 BOM 都会被拦下）：
+
+| 文件 | 入库 | 说明 |
+|------|------|------|
+| `.env.dev` / `.env.prod` | 是 | 构建配置，只允许 `VITE_*`，UTF-8 无 BOM |
+| `.env.dev.local` / `.env.prod.local` | 否 | 个人覆盖，优先级高于同名文件 |
+| `.env` | 否 | **不是给 Vite 用的**，是 uniCloud 云函数的环境变量（见下） |
 
 ```bash
 VITE_API_BASE_URL=http://103.24.218.69:8081/api/v1   # 测试服务器；必填，生产构建缺失或指向 localhost 会 fail build
@@ -116,7 +124,21 @@ VITE_DONATE_ENABLED=false                        # 捐赠入口总开关
 VITE_DONATE_IOS_ENABLED=false                    # iOS 需 StoreKit IAP，默认关
 VITE_DONATE_NATIVE_READY=false                   # Android 原生支付，后端对账接口未落地前必须关
 VITE_ADMIN_ENABLED=false                         # 内置管理后台入口，生产构建强制关
+VITE_APPLE_LOGIN_ENABLED=false                   # Apple 登录入口，默认关（见「一键登录」章节的启用条件）
 ```
+
+npm scripts 已带 `--mode=dev` / `--mode=prod`。**HBuilderX GUI 的运行/发行不经过 CLI**，
+它写死用 `development` / `production` 这两个 mode，因此 `vite.config.ts` 里的
+`MODE_ALIAS` 把它们映射到 `dev` / `prod`，保证 GUI 与 CLI 两条入口都能读到配置。
+
+判定「是否生产构建」必须用 `isProduction(mode)`（看 `NODE_ENV` + 归一后的 mode），
+**不要写 `mode === "production"`** —— 改用 `--mode=prod` 后那种写法恒为假，
+`checkAdminGate()` 会静默失效，管理后台入口会直接打进 C 端发布包。
+
+根目录 `.env` 的文件名是 DCloud 的约定，不能改：HBuilderX 本地运行
+`univerify-exchange` / `unipush-send` 时会把它作为云函数环境变量注入。
+里面的 `UNIVERIFY_SECRET` / `UNIPUSH_SECRET` 必须与 Go 后端一致。
+Vite 也会加载该文件，但只取 `VITE_` 前缀，而这些变量没有该前缀，所以对构建无影响。
 
 **所有 `import.meta.env.*` 的读取必须收口到 `src/utils/env.ts`**，不要在业务代码里裸写。配置校验分两层：`env.ts` 运行期 `console.error` 告警，`vite.config.ts` 的 `checkApiBaseUrl()` / `checkAdminGate()` 在构建期直接拦截。
 
@@ -124,9 +146,30 @@ VITE_ADMIN_ENABLED=false                         # 内置管理后台入口，�
 
 ## 后端
 
-Go 服务在 `../idoltrail-server-main`，当前对接的测试服务器为 `103.24.218.69`（香港，裸二进制 + systemd user service，无 Docker）。服务器信息、编译部署方式、回滚步骤见 `../idoltrail-server-main/DEPLOY.md`；业务与 API 规范见同目录 `CLAUDE.md`。
+Go 服务在 `../idoltrail-server-main`，当前对接的测试服务器为 `103.24.218.69`（香港，**Docker Compose 单容器**，无 systemd 单元、无裸二进制部署）。部署一律走 `deploy/test-server.sh` 或打 tag 触发 GitHub Actions；服务器信息、部署方式、回滚步骤见 `../idoltrail-server-main/DEPLOY.md`；业务与 API 规范见同目录 `CLAUDE.md`。
 
 一键登录的手机号换出链路横跨两端（App → 本服务 → uniCloud 云函数），改任一侧都要同步另一侧，密钥必须三处一致。
+
+## ⛔ 服务器红线：禁止修改 47.94.165.221
+
+平台有两台后端，**只有一台允许改**：
+
+| 主机 | 定位 | 允许的操作 |
+|------|------|-----------|
+| `103.24.218.69`（香港） | **测试服务器** | 可部署、可改代码、可重启服务 |
+| `47.94.165.221`（阿里云） | **线上正式服务器** | **仅只读排查** |
+
+`47.94.165.221` 同时是 `idoltrail.com` / `apitest.idoltrail.com` / `admintest.idoltrail.com` 的解析目标，承载生产流量与生产数据库。
+
+**禁止对该主机的任何写操作**：部署、发布、`docker compose up/down/restart`、`docker build/load`、改 `/home/dev/**` 下任何文件、改或重载 Nginx/容器/systemd、执行 `../idoltrail-server-main/scripts/` 下的任何脚本（**它们全部以 221 为目标**）。
+
+允许的只有只读排查：`ls`、`cat`、`docker ps`、`docker inspect`、`systemctl status`、`ss -lntp`、`curl` 只读探测。
+
+**未经用户逐次明确授权，不得以任何理由写入该主机。** 若误改，立即停止、用备份回滚并知会负责人。
+
+> 已发生过一次误部署：admin-web 曾按 `scripts/upload-and-deploy.sh` 里的 `SERVER="47.94.165.221"` 被部署到正式机（该脚本会清空并覆盖 `/home/dev/idoltrail-admin`），已从备份 `/home/dev/idoltrail-admin.bak.<ts>` 回滚。**不要照搬脚本里的主机常量，先确认该主机定位。**
+
+测试前端 admin-web 部署在 **`103.24.218.69`** 的 Nginx（`http://103.24.218.69/`，站点配置 `/etc/nginx/sites-available/idoltrail-admin`，站点文件 `/home/dev/idoltrail-admin`，`/api/` 反代 `127.0.0.1:8081`），连的是 69 的后端。
 
 ## 推送（uni-push 2.0）
 
@@ -137,6 +180,21 @@ Go 服务在 `../idoltrail-server-main`，当前对接的测试服务器为 `103
   或 `relatedType` + `relatedId` 组合（与站内通知路径约定一致）。后端传的 `ClickURL` 会落在 `payload.url`。
 - 真机验证必须用**含 uni-push 模块的自定义基座或云打包**安装，标准 HBuilder 运行基座收不到推送。
 - `offline:true` 还需在 DCloud 后台配置厂商通道（华为/小米/OPPO/vivo），未配置时 App 被回收后基本收不到。
+- `stores/user.ts` ↔ `composables/usePush.ts` 的循环依赖已断开：后者改为
+  `await import('@/stores/user')` 惰性引入。新增代码保持这个结构，不要在顶部静态 import。
+
+## 依赖版本锁定
+
+本项目的 Vue 版本**必须精确锁定**，不能用 `^`：
+
+- `vue` 与 `@vue/runtime-core` 锁 `3.4.21`，`pinia` 锁 `2.2.4`。
+- 原因：`@dcloudio/*` 全家桶把 `@vue/shared` 声明为 **dependencies**（不是 peer）且钉在 `3.4.21`，
+  会被提升到顶层；而 `^3.4.21` 会解析到 3.5.x，Vite 的 dedupe 于是让
+  `@vue/runtime-core@3.5.x` 拿到 `@vue/shared@3.4.21`，
+  编译直接失败：`"normalizeCssVarValue" is not exported by "@vue/shared"`。
+- `pinia@2.2.6+` 的 peer 要求 `vue ^3.5.11`，2.2.4 是最后一个兼容 3.3+ 的版本。
+- 改版本后必须清 `node_modules/.vite` 并重启 HBuilderX 的运行进程，
+  Vite 依赖图只在进程启动时解析，热更新不会生效。
 
 ## 自检命令
 

@@ -87,7 +87,16 @@
         </view>
 
         <!-- 赞助 Banner -->
-        <view class="donate-banner" @click="nav('/pages/profile/donate')">
+        <!-- 必须受 DONATE_ENABLED 控制。此前这个 banner 是无条件渲染的，
+             DONATE_ENABLED 在 src/utils/env.ts 里定义了却全仓无人引用，
+             于是即使支付通道全是 stub（invokeNativePay 未实现），
+             banner 依然恒显示 → 用户点进去必然失败。
+             开关关闭时整块隐藏，而不是展示一个点不动的入口。 -->
+        <view
+          v-if="DONATE_ENABLED"
+          class="donate-banner"
+          @click="nav('/pages/profile/donate')"
+        >
           <image
             class="donate-img"
             src="/static/icons/profile_background_donate.png"
@@ -129,6 +138,8 @@ import PageLayout from "@/components/PageLayout/index.vue";
 import TabBar from "@/components/TabBar/index.vue";
 import { useUserStore } from "@/stores/user";
 import { getNavBarMetrics } from "@/utils/system";
+import { getUserAvatarSrc } from "@/utils/avatar";
+import { DONATE_ENABLED } from "@/utils/env";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, ref } from "vue";
 const statusBarHeight = ref(20);
@@ -143,16 +154,8 @@ const genderIcon = computed(() => {
   return "";
 });
 
-// 用户头像：优先使用用户设置的头像，否则按性别展示 OSS 默认头像
-const userAvatarSrc = computed(() => {
-  if (user.value?.avatar_url) return user.value.avatar_url;
-  const g = user.value?.gender;
-  if (g === 0)
-    return "https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/virtual_persona.png";
-  if (g === 2)
-    return "https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/girl.png";
-  return "https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/boy.png";
-});
+// 用户头像：走统一入口（utils/avatar.ts），默认图按性别取本地静态资源
+const userAvatarSrc = computed(() => getUserAvatarSrc(user.value ?? undefined));
 
 onShow(async () => {
   const metrics = getNavBarMetrics();
@@ -195,6 +198,13 @@ const menuItems = [
     iconBg: "rgba(0,0,0,0.0)",
     iconColor: "#fff",
     action: () => guardedNav("/pages/profile/notifications"),
+  },
+  {
+    label: "上传情报",
+    icon: "/static/icons/submit_icon.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => guardedNav("/pages/event/submit"),
   },
   {
     label: "账号管理",

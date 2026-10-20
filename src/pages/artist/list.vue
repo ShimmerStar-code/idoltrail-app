@@ -27,7 +27,6 @@
         :show-scrollbar="false"
         class="scroll-body"
         :style="{ paddingBottom: tabBarHeight + 'px' }"
-        @scrolltolower="onScrollBottom"
       >
         <!-- 骨架屏：首屏加载中 -->
         <template v-if="store.groupedLoading">
@@ -57,7 +56,7 @@
           >
             <view class="group-header">
               <text class="group-title">{{ group.country }}</text>
-              <text class="group-all" @click="viewAll(group.code)">查看所有</text>
+              <text class="group-all" @click="viewAll(group.codes)">查看所有</text>
             </view>
             <scroll-view scroll-x enhanced :show-scrollbar="false" class="artists-scroll">
               <view class="artists-row">
@@ -89,78 +88,6 @@
                 </view>
               </view>
             </scroll-view>
-          </view>
-
-          <!-- 其他地区：已加载 -->
-          <template v-if="store.otherLoaded">
-            <view
-              v-for="group in otherGroupedArtists"
-              :key="group.country"
-              class="group"
-            >
-              <view class="group-header">
-                <text class="group-title">{{ group.country }}</text>
-                <text class="group-all" @click="viewAll(group.code)">查看所有</text>
-              </view>
-              <scroll-view scroll-x enhanced :show-scrollbar="false" class="artists-scroll">
-                <view class="artists-row">
-                  <view
-                    v-for="item in group.items"
-                    :key="item.id"
-                    class="artist-col"
-                    @click="toDetail(item.id)"
-                  >
-                    <view class="avatar-wrap">
-                      <image
-                        class="avatar"
-                        :src="getArtistAvatar(item)"
-                        mode="aspectFill"
-                        lazy-load
-                        @error="onAvatarError(item)"
-                      />
-                    </view>
-                    <text class="artist-name">{{ item.name }}</text>
-                    <view
-                      class="subscribe-btn"
-                      :class="{ 'subscribe-btn--active': subscribeStore.isArtistSubscribed(item.id) }"
-                      @click.stop="toggleSubscribe(item.id)"
-                    >
-                      <text class="subscribe-text">
-                        {{ subscribeStore.isArtistSubscribed(item.id) ? '退订' : '订阅' }}
-                      </text>
-                    </view>
-                  </view>
-                </view>
-              </scroll-view>
-            </view>
-          </template>
-
-          <!-- 其他地区：加载中骨架 -->
-          <template v-else-if="store.otherLoading">
-            <view v-for="g in 2" :key="'sk-other-' + g" class="group">
-              <view class="group-header">
-                <view class="sk sk-title" />
-                <view class="sk sk-all" />
-              </view>
-              <scroll-view scroll-x enhanced :show-scrollbar="false" class="artists-scroll">
-                <view class="artists-row">
-                  <view v-for="i in 5" :key="'sk-oa-' + i" class="artist-col">
-                    <view class="sk sk-avatar" />
-                    <view class="sk sk-name" />
-                    <view class="sk sk-btn" />
-                  </view>
-                </view>
-              </scroll-view>
-            </view>
-          </template>
-
-          <!-- 其他地区：提示入口（未加载且未触发滚动时） -->
-          <view
-            v-else
-            class="load-more-hint"
-            @click="store.fetchOther()"
-          >
-            <text class="load-more-text">↓ 继续滑动查看其他地区</text>
           </view>
 
           <view v-if="store.groupedList.length === 0" class="empty">暂无艺术家</view>
@@ -196,6 +123,8 @@ import SearchOverlay from "@/components/SearchOverlay/index.vue";
 import TabBar from "@/components/TabBar/index.vue";
 import { getArtistAvatarSrc } from "@/utils/avatar";
 import { useArtistStore } from "@/stores/artist";
+import { artistGroupLabel, artistGroupOrder } from "@/constants/artistCountries";
+import type { Artist } from "@/types/artist";
 import { useSearchStore } from "@/stores/search";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
@@ -203,7 +132,7 @@ import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import { getStatusBarHeight } from "@/utils/system";
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { onShow, onReachBottom, onHide, onUnload } from "@dcloudio/uni-app";
+import { onShow, onHide, onUnload } from "@dcloudio/uni-app";
 const store = useArtistStore();
 const userStore = useUserStore();
 const subscribeStore = useSubscribeStore();
@@ -282,7 +211,7 @@ onMounted(() => {
   Promise.all(tasks);
 });
 
-// 每次回到 tab：2 分钟内有数据则静默跳过，不触发骨架屏
+// 每次回到 tab：新鲜期内静默跳过，不触发骨架屏
 onShow(() => {
   store.fetchGrouped();
 });
@@ -296,40 +225,65 @@ onUnload(() => {
   clearListTimers();
 });
 
-/** 页面滚动到底部 → 触发其他地区懒加载 */
-onReachBottom(() => {
-  // ⚠️ 这里原来判的是 store.groupedLoading（"已知国家分组"的 loading），
-  // 与"其他地区"完全无关：首屏加载中会误跳过触发，已知国家加载完后又拦错了语义。
-  // store.fetchOther 内部已有 otherLoading 幂等守卫，页面层只需在已加载完毕时不再重复触发。
-  if (!store.otherLoaded) {
-    store.fetchOther();
-  }
-});
-
-/** 滚动到底部 → 触发其他地区懒加载 */
-function onScrollBottom() {
-  if (!store.otherLoaded) {
-    store.fetchOther();
-  }
+/**
+ * 组内按活动数量降序。
+ * 活动数缺失（undefined）当 0 处理 —— 分组接口正常会带 event_count，
+ * 但老缓存/异常返回时不能变成 NaN 让排序整体失效。
+ */
+function byEventCountDesc(a: Artist, b: Artist) {
+  const diff = (b.event_count ?? 0) - (a.event_count ?? 0)
+  if (diff !== 0) return diff
+  // 活动数相同再用订阅数、再用 id 兜底，保证同一批数据每次渲染顺序稳定，
+  // 不会出现刷新一次卡片就换位置。
+  const subDiff = (b.subscriber_count ?? 0) - (a.subscriber_count ?? 0)
+  if (subDiff !== 0) return subDiff
+  return String(a.id).localeCompare(String(b.id))
 }
 
-const COUNTRY_LABELS: Record<string, string> = {
-  JP: "日本", KR: "韩国", CN: "中国", US: "欧美",
-  TW: "台湾", HK: "香港", SG: "新马泰", MY: "新马泰", TH: "新马泰",
-};
-
-function buildGroups(artists: typeof store.groupedList) {
-  const map = new Map<string, { code: string; items: typeof store.groupedList }>();
+/**
+ * 按国家分组，组内按活动数量降序。
+ *
+ * 必须在这里再排一次，不能只依赖后端：
+ * ARTIST_GROUP_LABELS 把 SG/MY/TH 合并成同一个"新马泰"分组，而后端是按
+ * 国家各自取前 per 个、按国家分段返回的。拼接起来的一组实际上是
+ * "新加坡前 9 + 马来西亚前 9 + 泰国前 9"，整体并不满足降序，
+ * 跨国家的艺人需要在这里统一重排。
+ *
+ * 分组之间的顺序也由这里定：后端外层是 ORDER BY country（字母序），
+ * 与产品要求的"中日韩美英加巴印新马泰尼日利亚"不一致，
+ * 所以按 ARTIST_HOME_GROUP_ORDER 的下标排序，组内取成员里最靠前的一个国家码。
+ */
+function buildGroups(artists: Artist[]) {
+  const map = new Map<string, { code: string; codes: string[]; order: number; items: Artist[] }>();
   for (const a of artists) {
-    const label = COUNTRY_LABELS[a.country] || a.country || "其他";
-    if (!map.has(label)) map.set(label, { code: a.country, items: [] });
-    map.get(label)!.items.push(a);
+    const label = artistGroupLabel(a.country) || "其他";
+    // 白名单外的国家码（理论上不会出现）统一排到最后
+    const order = artistGroupOrder(a.country);
+    let g = map.get(label);
+    if (!g) {
+      g = { code: a.country, codes: [], order, items: [] };
+      map.set(label, g);
+    }
+    if (!g.codes.includes(a.country)) g.codes.push(a.country);
+    if (order < g.order) {
+      g.order = order;
+      g.code = a.country;
+    }
+    g.items.push(a);
   }
-  return Array.from(map.entries()).map(([country, { code, items }]) => ({ country, code, items }));
+  return Array.from(map.entries())
+    .map(([country, g]) => ({
+      country,
+      code: g.code,
+      order: g.order,
+      // "查看所有"要把该组涉及的所有国家码都带过去（新马泰是 SG,MY,TH）
+      codes: g.codes.slice().sort((x, y) => artistGroupOrder(x) - artistGroupOrder(y)),
+      items: g.items.sort(byEventCountDesc),
+    }))
+    .sort((a, b) => a.order - b.order);
 }
 
-const groupedArtists      = computed(() => buildGroups(store.groupedList));
-const otherGroupedArtists = computed(() => buildGroups(store.otherList));
+const groupedArtists = computed(() => buildGroups(store.groupedList));
 
 /**
  * App 端订阅：系统推送是长期订阅，没有"授权一次消耗一次"的配额语义，
@@ -365,8 +319,17 @@ function toggleSubscribe(id: string) {
 function toDetail(id: string) {
   uni.navigateTo({ url: `/pages/artist/detail?id=${id}` });
 }
-function viewAll(country: string) {
-  uni.navigateTo({ url: `/pages/artist/by-country?country=${country}` });
+/**
+ * "查看所有"下钻到 by-country。
+ *
+ * 传的是该组的全部国家码而不是单个：
+ * "新马泰"组是 SG/MY/TH 合并的，只传一个会只看到其中一个国家。
+ * 后端 /artists 的 country 支持逗号多值，一次请求就能列全。
+ */
+function viewAll(codes: string[]) {
+  const list = codes.length ? codes : [];
+  if (!list.length) return;
+  uni.navigateTo({ url: `/pages/artist/by-country?country=${list.join(",")}` });
 }
 </script>
 
@@ -506,18 +469,6 @@ function viewAll(country: string) {
   font-weight: 600;
   color: #fff;
   white-space: nowrap;
-}
-
-/* 其他地区入口提示 */
-.load-more-hint {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 40rpx 0 60rpx;
-}
-.load-more-text {
-  font-size: 26rpx;
-  color: #bbb;
 }
 
 .empty {

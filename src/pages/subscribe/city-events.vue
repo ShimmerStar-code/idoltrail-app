@@ -40,7 +40,13 @@
         @scroll="onVirtualScroll"
         @scrolltolower="onLoadMore"
       >
-        <view v-if="list.length === 0 && !loading" class="empty">暂无活动</view>
+        <LoginPrompt
+          v-if="!userStore.isLoggedIn"
+          title="登录后查看你的订阅"
+          sub="这里会展示你已订阅城市的相关活动"
+          reason="subscribe_city_events"
+        />
+        <view v-else-if="list.length === 0 && !loading" class="empty">暂无活动</view>
         <template v-if="loading && list.length === 0">
           <EventCardSkeleton v-for="i in 4" :key="`sk-${i}`" />
         </template>
@@ -69,6 +75,7 @@
 import { ref, onMounted, computed } from "vue";
 import { onLoad } from "@dcloudio/uni-app";
 import PageLayout from "@/components/PageLayout/index.vue";
+import LoginPrompt from "@/components/LoginPrompt/index.vue";
 import EventCard from "@/components/EventCard/index.vue";
 import EventCardSkeleton from "@/components/EventCard/Skeleton.vue";
 import { useUserStore } from "@/stores/user";
@@ -125,13 +132,9 @@ onMounted(async () => {
     /* ignore */
   }
 
-  if (!userStore.isLoggedIn) {
-    userStore.requireLogin({
-      dismissible: true,
-      reason: "subscribe_city_events",
-    });
-    return;
-  }
+  // 未登录不弹登录框：页面照常打开，列表区展示 LoginPrompt 引导，点引导才登录。
+  // 这里必须 return，不能继续 loadPage —— 接口要登录态，会 401 并触发全局会话失效弹窗。
+  if (!userStore.isLoggedIn) return;
   await loadPage(1);
 });
 
@@ -185,6 +188,7 @@ function voToEvent(vo: EventCardVO): Event {
     // 与 subscribe/index.vue 保持一致：直接用后端 events.type。
     // 早前这里按 vo.theme_color 反推 type，会把"蓝色 Concert"渲染成 Music_Festival，
     // 同一批活动在订阅页和城市活动页颜色对不上。
+    // type 是 event_type_ref.type_code（CONCERT / FESTIVAL / …），不再从颜色反推。
     type: vo.event.type || "",
     status: vo.event.status || "", // 透传后端 status，让 EventCard 按日期派生“已结束/已取消”
     poster_url: vo.event.poster_url,
@@ -196,8 +200,12 @@ function voToEvent(vo: EventCardVO): Event {
     artists: vo.event.artist
       ? ([
           {
+            // 与 subscribe/index.vue 的 voToEvent 保持一致：
+            // artist_id / theme_color 缺任一个，EventCard 都会退化成中性灰
+            artist_id: vo.event.artist.id,
             artist_name: vo.event.artist.name,
             avatar_url: vo.event.artist.avatar_url,
+            theme_color: vo.event.artist.theme_color,
           },
         ] as any)
       : [],

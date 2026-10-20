@@ -1,10 +1,20 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import { eventApi } from '@/api/event'
 import type { Event, EventDetail } from '@/types/event'
 import type { PageResult } from '@/types'
 
 const EMPTY_PAGE: PageResult<Event> = { total: 0, page: 1, page_size: 20, list: [] }
+
+/**
+ * 列表最多缓存的活动数（硬上限）。
+ *
+ * 活动列表是无限翻页的，但用户实际不会往下滑那么深；而每多留一条就多留一份
+ * Event VO（嵌套 sessions/times/artists/relations）在内存里，还要连带喂给
+ * list 页的窗口化组件做偏移量计算。给一个上限，到顶后停止翻页，
+ * 避免「同一个页面被反复进出 20 次」把内存吃满。
+ */
+const EVENT_LIST_MAX = 200
 
 function isValidPage(v: unknown): v is PageResult<Event> {
   return !!v && typeof v === 'object' && Array.isArray((v as any).list)
@@ -53,9 +63,19 @@ let _listSignature = ''
 let _detailSeq = 0
 /** 详情 in-flight 锁：key = eventId，同 id 复用同一个 Promise，避免重复请求 */
 const _detailInFlight = new Map<number, Promise<void>>()
+/**
+ * 列表 in-flight 锁：key = 筛选签名，同签名复用同一个 Promise。
+ * 缓存只在响应回来后才写入，挡不住并发：首页 onShow 早于 onMounted 触发，
+ * 两处都会调 fetchList，5 分钟缓存此时尚未落盘 → 必发两次 GET /events。
+ */
+const _listInFlight = new Map<string, Promise<void>>()
 
 export const useEventStore = defineStore('event', () => {
-  const list = ref<PageResult<Event>>(EMPTY_PAGE)
+  // 列表是「只读消费」的数据集：页面只读 store.list.list 渲染，不就地改元素。
+  // 用 shallowRef 而非 ref，避免几百个 Event 及其嵌套的 sessions / artists /
+  // genres 全被包成 Proxy —— 那是纯开销，且翻页时整份数组重建会把所有字段
+  // 重新代理一遍。列表整体的替换（fetchList / loadMore）照样能触发响应式。
+  const list = shallowRef<PageResult<Event>>(EMPTY_PAGE)
   const detail = ref<EventDetail | null>(null)
   const loading = ref(false)
   const loadingMore = ref(false) // 加载下一页时 true，避免重复触发
@@ -69,16 +89,32 @@ export const useEventStore = defineStore('event', () => {
 
   async function fetchList(params: Record<string, any> = {}) {
     const cacheKey = JSON.stringify(params)
+    // ⚠️ 这段必须在自增 _listSeq 之前：同签名的在途请求持有自己的 seq，
+    // 这里若再 bump 一次，那个请求回来就会因 `seq !== _listSeq` 被整条丢弃，
+    // list.value 永远不写，首页精选区卡死在骨架屏。
+    const inflight = _listInFlight.get(cacheKey)
+    if (inflight) return inflight
+    const task = runFetchList(params, cacheKey)
+    _listInFlight.set(cacheKey, task)
+    try {
+      await task
+    } finally {
+      // 只删自己那份：期间若又发起了同签名的新一轮，别把新锁摘掉
+      if (_listInFlight.get(cacheKey) === task) _listInFlight.delete(cacheKey)
+    }
+  }
+
+  async function runFetchList(params: Record<string, any>, cacheKey: string) {
     // ⚠️ seq 必须先于缓存判断自增：
     // 缓存命中时若不使旧请求失效，"慢请求 A + 缓存命中 B" 组合下
-    // A 回来时 seq 仍等于 _listSeq，第 61 行的防护形同虚设，
+    // A 回来时 seq 仍等于 _listSeq，下面的防护形同虚设，
     // 旧筛选条件的列表会覆盖用户刚看到的新结果。
     const seq = ++_listSeq
     const hit = _listCache.get(cacheKey)
     if (hit && Date.now() - hit.ts < CACHE_TTL) {
       list.value = hit.data
       _listSignature = cacheKey
-      hasMore.value = hit.data.list.length < hit.data.total
+      hasMore.value = hit.data.list.length < hit.data.total && hit.data.list.length < EVENT_LIST_MAX
       // ⚠️ 这里必须复位 loading：本次调用已把 _listSeq bump 成最新值，
       // 那些早前在途的请求回来时 `seq === _listSeq` 不成立、不会替我们关掉 loading，
       // 不复位就会永久停在 true —— 首页精选区卡死在骨架屏，
@@ -94,7 +130,7 @@ export const useEventStore = defineStore('event', () => {
       if (seq !== _listSeq) return
       const page = isValidPage(res) ? res : EMPTY_PAGE
       list.value = page
-      hasMore.value = page.list.length < page.total
+      hasMore.value = page.list.length < page.total && page.list.length < EVENT_LIST_MAX
       if (isValidPage(res)) {
         putBounded(_listCache, cacheKey, { data: page, ts: Date.now() }, LIST_CACHE_MAX)
       }
@@ -112,6 +148,10 @@ export const useEventStore = defineStore('event', () => {
     if (loading.value) return // fetchList 正在替换列表，此时追加会污染新列表
     if (!hasMore.value) return // 已全部加载
     if (!list.value || list.value.list.length >= list.value.total) return
+    if (list.value.list.length >= EVENT_LIST_MAX) {
+      hasMore.value = false // 已达硬上限，不再继续翻页
+      return
+    }
 
     // 发起前记录当前筛选签名：响应回来时若用户已改筛选，本次结果直接丢弃
     const sigAtStart = _listSignature
@@ -132,10 +172,12 @@ export const useEventStore = defineStore('event', () => {
         }
         list.value = {
           ...res,
-          list: merged,
+          list: merged.slice(0, EVENT_LIST_MAX),
         }
-        // 后端返回空页 / 数量不足 → 没有下一页，停止继续请求
-        hasMore.value = merged.length < list.value.total && res.list.length > 0
+        // 后端返回空页 / 数量不足 / 已达硬上限 → 没有下一页，停止继续请求
+        const kept = list.value.list.length
+        hasMore.value =
+          res.list.length > 0 && kept < res.total && kept < EVENT_LIST_MAX
       }
     } catch (e) {
       console.warn('[eventStore.loadMore] failed:', e)
@@ -174,6 +216,9 @@ export const useEventStore = defineStore('event', () => {
             likes_count: res.likes_count ?? 0,
             is_liked: res.is_liked ?? false,
             subscribe_count: res.subscribe_count ?? 0,
+            // 恒给空数组而不是留 undefined：详情页直接遍历它，
+            // 旧缓存对象（3 分钟 TTL 内）可能压根没这个键
+            contributors: res.contributors ?? [],
             notice: res.notice ?? '• 演出时长\n以现场为准\n• 入场时间\n请于演出前约120分钟入场\n• 禁止携带物品\n大多数演出、展览及比赛场所禁止携带食品、饮料、专业摄录设备、打火机等物品，请注意现场工作人员和广播的提示，予以配合。',
           }
           detail.value = data

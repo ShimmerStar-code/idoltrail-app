@@ -41,6 +41,22 @@ interface RequestOptions {
    * 用户表现为「日志有错误、界面毫无反应」。这类场景改由调用方在弹窗内内联提示。
    */
   silent?: boolean
+  /**
+   * 单次请求超时（ms），覆盖默认的 REQUEST_TIMEOUT。
+   *
+   * 上传类接口必须单独放宽：默认 15s 是按「列表/详情这种几百 KB 的 JSON」定的，
+   * 而投稿图片是手机原图（弱网下 2~5MB），15s 一到就被原生层 abort，
+   * 用户表现为「每次上传都在同一秒失败，且没有任何错误提示」。
+   */
+  timeout?: number
+  /**
+   * 请求取消句柄。返回的 Promise 仍是 Promise，但额外挂一个 abort()，
+   * 供离页/切筛选时主动撤掉在途请求，避免回调进已卸载的页面。
+   *
+   * 取消后的 promise 以 code = -1 的 Error reject（与 errno 区间不冲突），
+   * 调用方按需 ignore；不想处理的场景继续照常 catch 即可。
+   */
+  signal?: AbortSignal
 }
 
 // ─── 401 静默 refresh：并发去重 ───
@@ -123,7 +139,15 @@ function notifySessionExpired() {
 
 // ─── 主入口 ───
 export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', data, header = {}, skipAuth = false, skipAuthRedirect = false, silent = false } = options
+  const {
+    method = 'GET',
+    data,
+    header = {},
+    skipAuth = false,
+    skipAuthRedirect = false,
+    silent = false,
+    timeout = REQUEST_TIMEOUT,
+  } = options
   /**
    * @param token  本次请求使用的 access_token(重放时传新 token)
    * @param retried 是否已经做过一次 refresh 重放。
@@ -143,7 +167,7 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
         method: method as UniApp.RequestOptions['method'],
         data,
         header: h,
-        timeout: REQUEST_TIMEOUT,
+        timeout,
         success: async (res) => {
           // ── 1. HTTP 状态码优先 ──
           // 网关 / Nginx / 后端过滤器可能直接以 HTTP 401 返回（body 为空或 HTML），
@@ -194,6 +218,11 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           reject(bizError(body.message, body.code))
         },
         fail: (err) => {
+          // 主动取消：不弹 toast，也不当业务错误处理（调用方自己决定是否忽略）
+          if (isAbortError(err)) {
+            reject(abortError())
+            return
+          }
           if (!silent) {
             const timedOut = String(err?.errMsg || '').includes('timeout')
             uni.showToast({ title: timedOut ? '请求超时，请检查网络' : '网络错误', icon: 'none' })
@@ -202,7 +231,55 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
         },
       })
     })
-  return doRequest()
+  return withAbort(doRequest(), options.signal)
+}
+
+/** 取消错误统一带 code = -1：与后端 errno（4xxxx/5xxxx）不冲突，便于调用方按 code 分流 */
+const ABORT_CODE = -1
+
+function abortError(): Error & { code?: number } {
+  const err = new Error('请求已取消') as Error & { code?: number }
+  err.code = ABORT_CODE
+  return err
+}
+
+/** 判断 uni.request 的 fail 回调是否由 abort 触发（各端 errMsg 文案不一致） */
+function isAbortError(err: any): boolean {
+  const msg = String(err?.errMsg || '').toLowerCase()
+  return msg.includes('abort')
+}
+
+/**
+ * 给 Promise 挂 abort 支持。
+ *
+ * uni.request 的单次调用拿不到 RequestTask（这里包在 Promise 里），
+ * 所以用「信号 + settle 守卫」实现：signal 触发时把结果标记为已取消，
+ * 后续原生回调（无论成功还是失败）一律忽略 —— 等价于把在途请求作废，
+ * 且不会产生「取消后又 resolve 一次」的双重结算。
+ */
+function withAbort<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p
+  if (signal.aborted) {
+    return Promise.reject(abortError())
+  }
+  return new Promise<T>((resolve, reject) => {
+    let cancelled = false
+    const onAbort = () => {
+      cancelled = true
+      reject(abortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    p.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort)
+        if (!cancelled) resolve(v)
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort)
+        if (!cancelled) reject(e)
+      },
+    )
+  })
 }
 
 /**

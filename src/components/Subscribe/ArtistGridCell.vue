@@ -12,7 +12,7 @@
            不加懒加载会在进页瞬间并发请求全部头像 -->
       <image
         class="avatar"
-        :src="item.avatar_url || item.artist.avatar_url || '/static/icons/default-avatar.png'"
+        :src="getArtistAvatarSrc(item.artist)"
         mode="aspectFill"
         lazy-load
       />
@@ -26,6 +26,7 @@
 
 <script setup lang="ts">
 import type { ArtistCardVO } from '@/types/subscription'
+import { getArtistAvatarSrc } from '@/utils/avatar'
 
 defineProps<{ item: ArtistCardVO }>()
 defineEmits<{

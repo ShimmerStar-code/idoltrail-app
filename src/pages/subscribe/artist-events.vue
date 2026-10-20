@@ -24,7 +24,13 @@
       @scroll="onVirtualScroll"
       @scrolltolower="onLoadMore"
     >
-      <view v-if="list.length === 0 && !loading" class="empty">暂无活动</view>
+      <LoginPrompt
+        v-if="!userStore.isLoggedIn"
+        title="登录后查看你的订阅"
+        sub="这里会展示你已订阅偶像的相关活动"
+        reason="subscribe_artist_events"
+      />
+      <view v-else-if="list.length === 0 && !loading" class="empty">暂无活动</view>
       <!-- 初次加载占位:list 为空且在加载中 → 4 张骨架卡;已有数据时 loading=true 走底部"加载中..."文本 -->
       <template v-if="loading && list.length === 0">
         <EventSubCardSkeleton v-for="i in 4" :key="`sk-${i}`" />
@@ -54,6 +60,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import PageLayout from '@/components/PageLayout/index.vue'
+import LoginPrompt from '@/components/LoginPrompt/index.vue'
 import EventSubCard from '@/components/Subscribe/EventSubCard.vue'
 import EventSubCardSkeleton from '@/components/Subscribe/EventSubCardSkeleton.vue'
 import { useSubscribeStore } from '@/stores/subscribe'
@@ -92,10 +99,9 @@ onMounted(async () => {
     statusBarHeight.value = info.statusBarHeight || 20
   } catch (e) { /* ignore */ }
 
-  if (!userStore.isLoggedIn) {
-    userStore.requireLogin({ dismissible: true, reason: 'subscribe_artist_events' })
-    return
-  }
+  // 未登录不弹登录框：页面照常打开，列表区展示 LoginPrompt 引导，点引导才登录。
+  // 这里必须 return，不能继续 loadPage —— 接口要登录态，会 401 并触发全局会话失效弹窗。
+  if (!userStore.isLoggedIn) return
   await loadPage(1)
 })
 

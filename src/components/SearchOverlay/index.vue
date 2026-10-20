@@ -15,8 +15,8 @@
             <highlight-text :text="item.artist_name || item.name" :keyword="keyword" />
           </view>
           <view class="row-tags">
-            <text v-if="item.type" class="tag">{{ typeLabel(item.type) }}</text>
-            <text v-if="item.gender" class="tag">{{ genderLabel(item.gender) }}</text>
+            <text v-if="item.type" class="tag">{{ artistTypeLabel(item.type) }}</text>
+            <text v-if="item.gender" class="tag">{{ artistGenderLabel(item.gender) }}</text>
             <text v-if="item.country" class="tag">{{ item.country }}</text>
           </view>
         </view>
@@ -61,6 +61,7 @@
 <script setup lang="ts">
 import { useSearchStore } from '@/stores/search'
 import { formatCity } from '@/constants/cities'
+import { artistGenderLabel, artistTypeLabel } from '@/constants/artistLabels'
 import HighlightText from './HighlightText.vue'
 
 // 模板里直接用 keyword 即可（<script setup> 会把 props 暴露给模板），
@@ -73,12 +74,6 @@ const store = useSearchStore()
 
 function formatDate(d: string) {
   return d ? d.slice(0, 10).replace(/-/g, '.') : ''
-}
-function typeLabel(t: string) {
-  return t === 'Person' ? '个人' : t === 'Group' ? '组合' : t
-}
-function genderLabel(g: string) {
-  return g === 'Male' ? '男' : g === 'Female' ? '女' : g
 }
 
 function toArtist(id: string) { uni.navigateTo({ url: `/pages/artist/detail?id=${id}` }); emit('navigate') }

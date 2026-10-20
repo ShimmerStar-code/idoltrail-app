@@ -5,7 +5,7 @@ interface ImportMetaEnv {
   readonly DEV: boolean
   readonly PROD: boolean
   readonly BASE_URL: string
-  /** 后端 API 根地址，见 .env.example */
+  /** 后端 API 根地址，见 .env.dev / .env.prod */
   readonly VITE_API_BASE_URL: string
   /** uni-push 2.0 总开关，'false' 时所有推送相关逻辑走 no-op */
   readonly VITE_PUSH_ENABLED: string

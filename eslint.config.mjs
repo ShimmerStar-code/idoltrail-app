@@ -68,11 +68,24 @@ export default [
     },
   },
 
-  {
-    files: ['src/**/*.vue'],
-    rules: {
-      // uni-app 的 <block> / <view> 等内置标签按原样书写，不套 HTML 规则
-      'vue/no-undef-components': 'off',
+    {
+      files: ['src/**/*.vue'],
+      rules: {
+        // uni-app 的 <block> / <view> 这类纯排版标签，eslint-plugin-vue
+        // 认不出来会报 vue/no-undef-components，这里放开。
+        'vue/no-undef-components': 'off',
+      },
     },
-  },
-]
+
+    {
+      // 构建脚本跑在 Node 里，与浏览器源码的全局变量不同（process 等）。
+      // 不引 globals 包也能覆盖：本项目脚本只用这两个。
+      files: ['scripts/**/*.mjs'],
+      languageOptions: {
+        globals: {
+          process: 'readonly',
+          console: 'readonly',
+        },
+      },
+    },
+  ]

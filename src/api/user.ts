@@ -48,6 +48,9 @@ export const userApi = {
         url: API_BASE_URL + '/user/avatar/upload',
         filePath,
         name: 'file',
+        // 显式给上限：各端 uploadFile 默认行为不一致，不写可能沿用宿主默认
+        // （部分实现根本不超时），弱网大图会一直挂着、用户既等不到结果也退不掉
+        timeout: 60000,
         header: {
           Authorization: 'Bearer ' + uni.getStorageSync('fans:auth:access'),
         },
@@ -67,7 +70,8 @@ export const userApi = {
         fail(err) {
           // err.errMsg 是微信原始错误，如 "uploadFile:fail url not in domain list"
           console.error('[uploadAvatar] fail:', err?.errMsg ?? err)
-          reject(new Error(err?.errMsg ?? '上传失败'))
+          const timedOut = String(err?.errMsg || '').toLowerCase().includes('timeout')
+          reject(new Error(timedOut ? '头像上传超时，请检查网络后重试' : (err?.errMsg ?? '上传失败')))
         },
       })
     })

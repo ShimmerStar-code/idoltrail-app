@@ -51,6 +51,9 @@ export const subscriptionApi = {
     ),
 
   // ── 活动 ──
+  /** 只取已订阅活动 id 数组（最快路径，给全站星标反显用）。
+   *  与艺人/城市同一套 ids_only 约定；后端不区分 ongoing/expired，反显也不需要。 */
+  myEventIds: () => request<{ ids: string[] }>('/subscriptions/events?ids_only=true'),
   myEvents: (status: 'ongoing' | 'expired', page = 1, page_size = 20) =>
     request<EventListEnvelope>('/subscriptions/events', {
       method: 'GET', data: { status, page, page_size },

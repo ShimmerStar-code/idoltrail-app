@@ -214,11 +214,17 @@ function pickStatus(code: string) {
 <style scoped>
 .filters {
   display: flex;
+  /*
+    必须允许换行。原来是 nowrap + overflow-x:auto：5 个胶囊各自 flex-shrink:0，
+    而「粉丝见面会」有 5 个字，光它一个就把整行顶到 ~790rpx，超过可用宽度 690rpx，
+    最右侧的「日历」胶囊被挤出容器 —— App 端纯 overflow 的横向滚动又不可靠，
+    结果就是这一项彻底点不到（筛选控件不可达属于功能性缺陷，不是观感问题）。
+    换行后不管选中哪个长标签，最坏也只是多占一行，任何一项都保证能点。
+  */
+  flex-wrap: wrap;
   gap: 16rpx;
   padding: 20rpx 30rpx;
   background: #fff;
-  flex-wrap: nowrap;
-  overflow-x: auto;
 }
 .filter-pill {
   display: inline-flex;

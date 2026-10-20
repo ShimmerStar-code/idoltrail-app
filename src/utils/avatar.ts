@@ -1,76 +1,96 @@
 /**
- * 头像工具函数 - 提供统一的默认头像 fallback 逻辑
+ * 头像统一取值入口。
+ *
+ * 全 app 的头像渲染都必须走这里，不要在模板里写 `item.avatar_url || '...'`：
+ *   - 艺人 → getArtistAvatarSrc(artist)
+ *   - 用户 → getUserAvatarSrc(user)
+ *   - 已知类型/gender 但没有 URL → getDefaultAvatarSrc(type, gender)
+ *
+ * 默认头像一律走本地文件（utils/defaultAvatar.ts），不给网络请求，
+ * 原因与背景见该文件顶部注释。
  */
 
-// OSS 默认头像地址
-const DEFAULT_AVATAR_BOY = 'https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/boy.png'
-const DEFAULT_AVATAR_GIRL = 'https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/girl.png'
-const DEFAULT_AVATAR_GROUP = 'https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/group.png'
-const DEFAULT_AVATAR_VIRTUAL = 'https://idoltrail-static.oss-cn-beijing.aliyuncs.com/avatar/default/virtual_persona.png'
+import {
+  defaultAvatarKeyFromUrl,
+  defaultAvatarSrc,
+  isDefaultAvatarUrl,
+  type DefaultAvatarKey,
+} from './defaultAvatar'
+import { avatarThumb } from './image'
 
-// 后端有时会把错误的默认头像 URL 存入 avatar_url（如把 Group 存成 boy.png）
-// 遇到这些 URL 时不直接使用，改由 type/gender 重新计算，保证结果正确
-const DEFAULT_AVATAR_SET = new Set([
-  DEFAULT_AVATAR_BOY,
-  DEFAULT_AVATAR_GIRL,
-  DEFAULT_AVATAR_GROUP,
-  DEFAULT_AVATAR_VIRTUAL,
-])
+export { isDefaultAvatarUrl }
 
 /**
- * 根据 type/gender 计算对应默认头像，供 @error 降级使用
+ * 按 type/gender 判定默认头像分类；type/gender 缺失或认不出时返回 null，
+ * 交由调用方用其他线索（默认图 URL）继续判定。
+ *
+ * 与后端 model.ResolveAvatar 严格同口径（server: internal/model/artist_defaults.go）：
+ *   group → 组合图，character → 虚拟形象，female → 女性，male → 男性。
  */
+function kindByTypeGender(type?: string, gender?: string): DefaultAvatarKey | null {
+  if (type?.toLowerCase() === 'group') return 'group'
+  switch (gender?.toLowerCase()) {
+    case 'character':
+      return 'virtual_persona'
+    case 'female':
+      return 'girl'
+    case 'male':
+      return 'boy'
+    default:
+      return null
+  }
+}
+
+/** 默认头像分类；没有任何线索时按男兜底 */
+export function avatarKind(type?: string, gender?: string): DefaultAvatarKey {
+  return kindByTypeGender(type, gender) ?? 'boy'
+}
+
+/** 按 type/gender 取默认头像的本地地址 */
 export function getDefaultAvatarSrc(type?: string, gender?: string): string {
-  const t = type?.toLowerCase()
-  const g = gender?.toLowerCase()
-  if (t === 'group') return DEFAULT_AVATAR_GROUP
-  if (g === 'character') return DEFAULT_AVATAR_VIRTUAL
-  if (g === 'female') return DEFAULT_AVATAR_GIRL
-  return DEFAULT_AVATAR_BOY
+  return defaultAvatarSrc(avatarKind(type, gender))
 }
 
 /**
- * 获取艺术家头像 URL（带默认值 fallback）
- * @param artist - 艺术家对象，包含 avatar_url, type, gender 字段
- * @returns 头像 URL
+ * 艺人头像。
+ *
+ * 库里没头像、或后端 ResolveAvatar 填的是默认占位图 → 一律给本地默认图。
+ * 关键在于「不把默认图当网络图用」：走 URL 会让同一张默认图被每个艺人各拉一次，
+ * 偶像首页一次 9 × N 个艺人就是几十次重复请求。
+ *
+ * 分类优先级：type/gender → 默认图 URL 反推 → 男。
+ * type/gender 是数据真相，能纠正库里存错的默认值（如组合存成 boy.png）；
+ * URL 反推兜住「只下发 avatar_url、没有 type/gender」的精简 VO。
  */
 export function getArtistAvatarSrc(artist?: {
   avatar_url?: string
   type?: string
   gender?: string
 }): string {
-  if (artist?.avatar_url) {
-    // 非默认图：直接用
-    if (!DEFAULT_AVATAR_SET.has(artist.avatar_url)) return artist.avatar_url
-
-    // 是默认占位图。后端 ResolveAvatar 已按 type/gender 算出分类正确的 URL，
-    // 这里不该盲目丢弃——一旦丢弃而 type/gender 又没下发（例如老版本后端），
-    // 只能落到 getDefaultAvatarSrc() 的 boy 兜底，导致女艺人和组合全显示成男头像。
-    // 有 type/gender 时才重算（可顺带修正库里存的错误默认值），否则信任后端的值。
-    if (artist.type || artist.gender) {
-      return getDefaultAvatarSrc(artist.type, artist.gender)
-    }
-    return artist.avatar_url
+  const url = artist?.avatar_url
+  if (!url || isDefaultAvatarUrl(url)) {
+    const kind =
+      kindByTypeGender(artist?.type, artist?.gender) ??
+      defaultAvatarKeyFromUrl(url) ??
+      'boy'
+    return defaultAvatarSrc(kind)
   }
-
-  return getDefaultAvatarSrc(artist?.type, artist?.gender)
+  // 缩略图：原图解码后动辄 4MB，列表里一屏就有几十张 → OOM 的头号来源
+  return avatarThumb(url)
 }
 
 /**
- * 获取用户头像 URL（带默认值 fallback）
- * @param user - 用户对象，包含 avatar_url 和 gender 字段
- * @returns 头像 URL
+ * 用户头像。
+ * 用户性别：0=保密（虚拟形象）、1=男、2=女；未设置或异常都按男。
  */
 export function getUserAvatarSrc(user?: {
   avatar_url?: string
   gender?: number
 }): string {
-  if (user?.avatar_url) return user.avatar_url
-
-  // 用户性别：0=保密, 1=男, 2=女
-  const gender = user?.gender
-  if (gender === 0) return DEFAULT_AVATAR_VIRTUAL
-  if (gender === 2) return DEFAULT_AVATAR_GIRL
-
-  return DEFAULT_AVATAR_BOY
+  const url = user?.avatar_url
+  if (url && !isDefaultAvatarUrl(url)) return avatarThumb(url)
+  const g = user?.gender
+  if (g === 0) return defaultAvatarSrc('virtual_persona')
+  if (g === 2) return defaultAvatarSrc('girl')
+  return defaultAvatarSrc('boy')
 }

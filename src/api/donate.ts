@@ -4,6 +4,7 @@ import type {
   AppleIAPProductMap,
   AppleIAPVerifyRequest,
   AppleIAPVerifyResponse,
+  DonationChannel,
   DonationOrderRequest,
   DonationOrderResponse,
   DonationOrderStatus,
@@ -12,11 +13,17 @@ import type {
 } from '@/types/donate'
 
 export const donateApi = {
-  /** 创建捐赠订单（V3 JSAPI，备用） */
-  createOrder(amount: number): Promise<DonationOrderResponse> {
+  /**
+   * 创建捐赠订单。
+   *
+   * @param channel 支付渠道。Android 端必须传 `wx_app`，
+   *   否则服务端会走小程序 JSAPI 分支并因取不到 openid 而报 409。
+   *   不传时后端按 `wx_jsapi` 处理（保持历史调用兼容）。
+   */
+  createOrder(amount: number, channel?: DonationChannel): Promise<DonationOrderResponse> {
     return request<DonationOrderResponse>('/donations', {
       method: 'POST',
-      data: { amount } as DonationOrderRequest,
+      data: { amount, channel } as DonationOrderRequest,
     })
   },
 
@@ -41,8 +48,17 @@ export const donateApi = {
     })
   },
 
-  /** 查询订单状态（前端轮询用，已校验属主） */
-  queryOrder(outTradeNo: string): Promise<DonationOrderStatus> {
-    return request<DonationOrderStatus>(`/donations/${encodeURIComponent(outTradeNo)}`)
+  /**
+   * 查询订单状态。
+   *
+   * @param outTradeNo 商户单号
+   * @param options.silent 传 true 时失败不弹全局 toast，只 reject。
+   *   支付结果轮询必须用 silent：那段时间页面被全屏 mask 遮着，
+   *   每次轮询失败都弹 toast 既看不见，又会在 mask 关闭的瞬间集体闪现。
+   */
+  queryOrder(outTradeNo: string, options?: { silent?: boolean }): Promise<DonationOrderStatus> {
+    return request<DonationOrderStatus>(`/donations/${encodeURIComponent(outTradeNo)}`, {
+      silent: options?.silent,
+    })
   },
 }

@@ -17,11 +17,7 @@
           <view class="avatar-wrap" @click="pickAvatar">
             <image
               class="avatar"
-              :src="
-                avatarPreview ||
-                user?.avatar_url ||
-                '/static/icons/default-avatar.png'
-              "
+              :src="avatarPreview || getUserAvatarSrc(user ?? undefined)"
               mode="aspectFill"
             />
             <view class="edit-icon">
@@ -159,6 +155,7 @@ import { onLoad } from "@dcloudio/uni-app";
 import { useUserStore } from "@/stores/user";
 import { userApi } from "@/api/user";
 import { getNavBarMetrics } from "@/utils/system";
+import { getUserAvatarSrc } from "@/utils/avatar";
 import PageLayout from "@/components/PageLayout/index.vue";
 const GENDER_LABELS = ["保密", "男", "女"];
 

@@ -231,6 +231,12 @@ watch(() => props.visible, async (v) => {
 watch(() => props.availableCities, () => { allCities.value = []; currentPage.value = 1 })
 
 // ── 加载城市分页数据 ──
+/** 每页条数：50 条足够填满弹窗两三屏，再多只是白白拉大响应体 */
+const CITY_PAGE_SIZE = 50
+/** 累计渲染上限：城市是固定数据集（约 300 条），但仍加一道防线，
+ *  万一后端把 Country 级 region 也混进来，也不会无限膨胀。 */
+const CITIES_MAX = 500
+
 async function loadCitiesPage(page: number) {
   const isFirstPage = page === 1
   if (isFirstPage) {
@@ -240,13 +246,13 @@ async function loadCitiesPage(page: number) {
   }
 
   try {
-    const r = await regionApi.listCities(page, 200)
+    const r = await regionApi.listCities(page, CITY_PAGE_SIZE)
     const newCities = regionListToOptions(r.list)
 
     if (isFirstPage) {
       allCities.value = newCities
     } else {
-      allCities.value = [...allCities.value, ...newCities]
+      allCities.value = [...allCities.value, ...newCities].slice(0, CITIES_MAX)
     }
 
     totalCount.value = r.total
@@ -266,8 +272,9 @@ async function loadCitiesPage(page: number) {
 function onScrollToLower() {
   // 搜索模式下不加载更多（搜索结果已全部返回）
   if (keyword.value.trim()) return
-  // 正在加载或没有更多数据时不重复加载
+  // 正在加载 / 没有更多 / 已达渲染上限时不重复加载
   if (loadingMore.value || !hasMore.value) return
+  if (allCities.value.length >= CITIES_MAX) return
 
   loadCitiesPage(currentPage.value + 1)
 }
@@ -330,7 +337,7 @@ function onSearch() {
     isSearching.value = true
     loading.value = true
     try {
-      const r = await regionApi.search(keyword.value.trim(), 1, 100) // 搜索结果最多100条
+      const r = await regionApi.search(keyword.value.trim(), 1, 30) // 搜索结果最多 30 条
       searchResults.value = regionListToOptions(r.list)
       displayList.value   = searchResults.value
     } catch {

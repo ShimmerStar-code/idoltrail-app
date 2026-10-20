@@ -15,13 +15,13 @@
 import { pushApi } from '@/api/push'
 import { PUSH_ENABLED } from '@/utils/env'
 import { getDeviceId, getPushPlatform } from '@/utils/device'
-import { useUserStore } from '@/stores/user'
 import { useNotificationStore } from '@/stores/notification'
 
-// 注：本文件与 stores/user.ts 存在相互 import。
-// 安全性前提：两个模块的**顶层都不执行**对彼此的调用（useUserStore() 与
-// syncPushToken() 均只在函数体内被调用），因此 ESM 循环解析不会拿到未初始化的值。
-// 新增代码时请保持这个前提，不要把对方的调用提到模块顶层。
+// 注：本文件与 stores/user.ts 曾相互 import，靠「顶层不执行」侥幸不出错，
+// 但 Vite 构建会因此告警 Circular chunk，且 chunk 求值顺序不可控。
+// 现在改为在本文件内**惰性引入** user store（见 syncPushToken / unbindPushToken），
+// 模块级已不再 import stores/user.ts，循环已断开。新增代码请保持这个结构：
+// 需要 user store 时用 `await import(...)`，不要在文件顶部静态 import。
 
 /** 推送总开关，读取收口在 utils/env.ts。'false' / 未定义 → 全部走 no-op */
 function pushEnabled(): boolean {
@@ -305,6 +305,10 @@ export function getPushClientId(): Promise<string> {
  */
 export async function syncPushToken(): Promise<boolean> {
   if (!pushEnabled()) return false
+  // 惰性引入：user store 在登录/刷新成功后反过来调本模块上报 cid，
+  // 若这里再静态 import 就构成循环依赖（stores/user -> composables/usePush
+  // -> stores/user），Vite 构建会告警且 chunk 求值顺序不可控。
+  const { useUserStore } = await import('@/stores/user')
   const userStore = useUserStore()
   if (!userStore.isLoggedIn) return false
 
@@ -323,6 +327,8 @@ export async function syncPushToken(): Promise<boolean> {
 /** 登出 / 切换账号时解绑，避免把上一个账号的通知推给本机用户 */
 export async function unbindPushToken(): Promise<void> {
   if (!pushEnabled()) return
+  // 同 syncPushToken：惰性引入以避开与 user store 的循环依赖
+  const { useUserStore } = await import('@/stores/user')
   const userStore = useUserStore()
   if (!userStore.accessToken) return
   try {

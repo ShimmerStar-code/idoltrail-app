@@ -21,18 +21,18 @@
       </view>
     </view>
 
-    <!-- 列表 -->
+      <!-- 列表 -->
     <scroll-view scroll-y class="panel-scroll">
-      <view v-if="notifStore.loading && notifStore.list.length === 0" class="empty-wrap">
+      <view v-if="notifStore.loading && notifStore.panelList.length === 0" class="empty-wrap">
         <text class="empty-text">加载中…</text>
       </view>
-      <view v-else-if="notifStore.list.length === 0" class="empty-wrap">
+      <view v-else-if="notifStore.panelList.length === 0" class="empty-wrap">
         <text class="empty-icon">🔔</text>
         <text class="empty-text">暂无消息</text>
       </view>
       <view v-else class="notif-list">
         <view
-          v-for="item in notifStore.list"
+          v-for="item in notifStore.panelList"
           :key="item.id"
           class="notif-item"
           :class="{ 'notif-item--unread': !item.isRead }"
@@ -55,7 +55,7 @@
       </view>
 
       <!-- 查看全部 -->
-      <view v-if="notifStore.total > 0" class="view-all" @click="goToMessages">
+      <view v-if="notifStore.panelList.length > 0" class="view-all" @click="goToMessages">
         <text class="view-all-text">查看全部消息 →</text>
       </view>
     </scroll-view>
@@ -82,7 +82,8 @@ const notifStore = useNotificationStore()
 // 每次打开时刷新列表
 watch(() => props.visible, async (val) => {
   if (val) {
-    await notifStore.fetchList(1, 20)
+    // 只拉最新一页，且只动 panelList —— 不会冲掉消息页已翻到的页码与位置
+    await notifStore.fetchPanelList()
   }
 })
 

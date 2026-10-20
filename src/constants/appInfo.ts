@@ -20,7 +20,7 @@ export const APP_REGION = '北京市'
  * ICP 备案号。空串表示尚未取得/待核验，UI 不展示备案行。
  * 上线前请填入工信部公示的真实备案号。
  */
-export const ICP_FILING_NO = ''
+export const ICP_FILING_NO = '京ICP备2024102003号-2A'
 
 /** App 版本名，与 manifest.json versionName 保持一致 */
 export const APP_VERSION_NAME = '1.0.0'

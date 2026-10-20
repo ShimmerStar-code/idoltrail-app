@@ -54,6 +54,12 @@
             </view>
             <text v-if="description" class="card-desc" :style="{ color: theme.ink }">{{ description }}</text>
 
+            <!-- 订阅人数：与右上角书签订阅同一份数据，订阅/退订成功后由后端失效缓存 -->
+            <view class="card-subscriber" :style="{ color: theme.ink }">
+              <image class="card-subscriber-icon" src="/static/detail_icon/collect.svg" mode="aspectFit" />
+              <text class="card-subscriber-text">{{ subscriberText }}</text>
+            </view>
+
             <!-- 基本信息标签:流式排布 -->
             <view class="info-tags">
               <view v-for="t in infoTags" :key="t.key" class="info-tag">
@@ -63,17 +69,49 @@
             </view>
           </view>
 
-          <!-- 社交按钮(固定 5 个,无 URL 置灰) -->
+          <!-- 社交按钮:无链接的置灰,点击提示「暂无该平台链接」 -->
           <view class="social-row-wrap">
             <view class="social-row">
               <view
                 v-for="s in socials"
                 :key="s.key"
                 class="social-btn"
+                :class="{ 'social-btn--empty': !s.url }"
                 @click="onSocialTap(s)"
               >
                 <image class="social-icon" :src="s.icon" mode="aspectFill" />
               </view>
+            </view>
+          </view>
+
+          <!-- 组合成员：仅组合类艺人显示，点击进入成员详情 -->
+          <view v-if="members.length" class="section-pad">
+            <view class="section-title-row">
+              <text class="section-title section-title--highlight">组合成员</text>
+              <text class="section-all">{{ members.length }} 位</text>
+            </view>
+            <view class="members-card">
+              <view
+                v-for="m in visibleMembers"
+                :key="m.id"
+                class="member-item"
+                hover-class="member-item--hover"
+                @click="toMember(m)"
+              >
+                <image class="member-avatar" :src="m.avatar" mode="aspectFill" />
+                <view class="member-meta">
+                  <text class="member-name">{{ m.name }}</text>
+                  <text v-if="m.country" class="member-country">{{
+                    artistRegionLabel(m.country)
+                  }}</text>
+                </view>
+                <uni-icons type="right" size="small" color="#C0C4CC" />
+              </view>
+            </view>
+            <view v-if="members.length > visibleMembers.length" class="list-cap">
+              <text class="list-cap-text"
+                >仅显示前 {{ visibleMembers.length }} 位，共 {{ members.length }} 位</text
+              >
             </view>
           </view>
 
@@ -88,6 +126,7 @@
                 v-for="ev in relatedEvents"
                 :key="ev.id"
                 :event="ev"
+                variant="flat"
                 :entryGenreCode="store.detail?.genres?.[0]?.genre_code"
                 :theme-artist-id="store.detail?.id"
                 :theme-color="store.detail?.theme_color"
@@ -100,12 +139,12 @@
           </view>
 
           <!-- 作品集 -->
-          <view class="section-pad" v-if="store.detail.works?.length">
+          <view class="section-pad" v-if="works.length">
             <view class="section-title-row">
               <text class="section-title section-title--highlight">作品集</text>
             </view>
             <view class="works-card">
-              <view v-for="w in store.detail.works" :key="w.id" class="work-item">
+              <view v-for="w in visibleWorks" :key="w.id" class="work-item">
                 <text class="work-title"
                   >• {{ w.title
                   }}{{
@@ -116,6 +155,11 @@
                 >
                 <text v-if="w.description" class="work-desc">「{{ w.description }}」</text>
               </view>
+            </view>
+            <view v-if="works.length > visibleWorks.length" class="list-cap">
+              <text class="list-cap-text"
+                >仅显示前 {{ visibleWorks.length }} 个作品，共 {{ works.length }} 个</text
+              >
             </view>
           </view>
 
@@ -130,7 +174,7 @@
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
 import { ref, computed, onMounted } from "vue";
-import { onLoad } from "@dcloudio/uni-app";
+import { onLoad, onShow } from "@dcloudio/uni-app";
 import { useArtistStore } from "@/stores/artist";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
@@ -138,9 +182,12 @@ import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import EventCard from "@/components/EventCard/index.vue";
 import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
+import { artistGenderLabel, artistTypeLabel } from "@/constants/artistLabels";
+import { artistRegionLabel } from "@/constants/artistCountries";
 import { zodiacOf } from "@/utils/zodiac";
 import { getArtistAvatarSrc, getDefaultAvatarSrc } from "@/utils/avatar";
 import { getNavBarMetrics } from "@/utils/system";
+import { openExternalUrl } from "@/utils/openExternal";
 const artistStore = useArtistStore();
 const subscribeStore = useSubscribeStore();
 const userStore = useUserStore();
@@ -148,14 +195,37 @@ const store = artistStore;
 const statusBarHeight = ref(20);
 const navRightPadding = ref(16);
 
+/** 本页面正在浏览的艺人 id。store.detail 是全局共享槽位，需要靠它判断数据是否被顶掉。 */
+const artistId = ref("");
+
 onLoad((options) => {
   const id = options?.id;
   if (!id || id === "undefined") {
     uni.showToast({ title: "艺术家ID缺失", icon: "none" });
     return;
   }
+  artistId.value = id;
   artistStore.fetchDetail(id);
   // 不再请求全量活动列表 — 关联活动由 artistApi.detail 返回的 events 字段提供
+});
+
+/**
+ * 返回时自愈：从成员详情 navigateBack 回来时，onLoad 不会重跑，
+ * 而 store.detail 已被成员页的 fetchDetail 覆盖成成员，于是组合页渲染的是成员内容，
+ * 表现为「点了返回没回到偶像详情页」。
+ * 这里按 id 比对，数据对不上就重新拉一次；对得上（成员→活动详情→返回）则完全跳过请求。
+ */
+onShow(() => {
+  if (!artistId.value) return;
+  if (store.detail?.id !== artistId.value) {
+    // 先清空再拉：直接保留旧值的话，返回瞬间会先渲染出成员的头像/名字，
+    // 等组合数据回来才跳变，看起来像 glitch。清空后走 v-else 的「加载中...」，
+    // 是一段正常的加载态而不是错误内容。
+    artistStore.detail = null;
+    artistStore.fetchDetail(artistId.value);
+  }
+  // 换人后要重置头像降级标记，否则上一位艺人的加载失败会污染当前页
+  avatarLoadFailed.value = false;
 });
 
 onMounted(() => {
@@ -198,31 +268,28 @@ const theme = computed(() =>
 // ── 简介:优先 detail.description,无则空 ──
 const description = computed(() => store.detail?.detail?.description || "");
 
-// ── 基本信息标签 ──
-const GENDER_LABEL: Record<string, string> = {
-  Female: "女",
-  Male: "男",
-  Other: "其他",
-};
-const TYPE_LABEL: Record<string, string> = {
-  Person: "个人",
-  Group: "组合",
-  Orchestra: "管弦乐团",
-  Choir: "合唱团",
-  Character: "虚拟角色",
-};
-const COUNTRY_LABEL: Record<string, string> = {
-  JP: "日本",
-  KR: "韩国",
-  CN: "中国",
-  US: "美国",
-  GB: "英国",
-  TW: "中国台湾",
-  HK: "中国香港",
-  SG: "新加坡",
-  MY: "马来西亚",
-  TH: "泰国",
-};
+// gender / type 的中文文案统一走 @/constants/artistLabels，
+// 本页不再自带一份映射表（此前与 SearchOverlay 各写一份且大小写不一致，
+// 导致同一性别在详情页显示「女」、在搜索结果里显示「male」）。
+
+// ── 订阅数 ──
+// 后端详情接口单独返回 subscriber_count（列表接口本来就有，详情接口这次才补上）。
+// null / undefined 都按 0 处理——后端 count 查询失败时会吞错填 0。
+const subscriberCount = computed(() => {
+  const n = store.detail?.subscriber_count;
+  return typeof n === "number" && n > 0 ? n : 0;
+});
+// 万以上才折算，避免「1.2万人订阅」这种误导性文案出现在小数据量上
+const subscriberText = computed(() => {
+  const n = subscriberCount.value;
+  if (n >= 10000) return `${(n / 10000).toFixed(1)} 万人订阅`;
+  return `${n} 人订阅`;
+});
+/**
+ * 国家/地区文案统一走 @/constants/artistCountries 的 artistRegionLabel，
+ * 本页不再自带一份映射表（此前这份只有 10 条，加拿大 / 巴西 / 印度 / 尼日利亚
+ * 等艺人在详情页会直接显示裸 ISO 码，且与偶像首页的分组标签表不一致）。
+ */
 
 const infoTags = computed(() => {
   const d = store.detail;
@@ -257,17 +324,19 @@ const infoTags = computed(() => {
   }
 
   // 性别：女/男用对应图标
+  // 图标按小写值匹配；文案走 artistGenderLabel（内部同样小写化查表）
   if (d.gender) {
+    const g = d.gender.toLowerCase();
     const genderIcon =
-      d.gender === "Female"
+      g === "female"
         ? "/static/icons/female.svg"
-        : d.gender === "Male"
+        : g === "male"
         ? "/static/icons/male.svg"
         : "/static/detail_icon/type.svg";
     list.push({
       key: "gender",
       icon: genderIcon,
-      label: GENDER_LABEL[d.gender] || d.gender,
+      label: artistGenderLabel(d.gender),
     });
   }
 
@@ -291,7 +360,7 @@ const infoTags = computed(() => {
     list.push({
       key: "country",
       icon: "/static/detail_icon/country.svg",
-      label: COUNTRY_LABEL[d.country] || d.country,
+      label: artistRegionLabel(d.country),
     });
   }
 
@@ -310,7 +379,7 @@ const infoTags = computed(() => {
     list.push({
       key: "type",
       icon: "/static/detail_icon/type.svg",
-      label: TYPE_LABEL[d.type] || d.type,
+      label: artistTypeLabel(d.type),
     });
 
   // 出道日期（设计稿第4行右，格式同生日）
@@ -323,8 +392,12 @@ const infoTags = computed(() => {
     });
   }
 
-  // 组合关联：显示组合名（related_name），取第1条 member/group 关系
-  const groupRel = (d.relations || []).find((r) => /member|group/i.test(r.relation_type));
+  // 所属组合：只有当关联对象本身是 Group 时才算「组合」。
+  // 不能只看 relation_type——组合自己的 relations 同样是 member，
+  // 原来的写法会让 YOASOBI 的详情页出现「ayase组合」这种 nonsense。
+  const groupRel = (d.relations || []).find(
+    (r) => /member|group/i.test(r.relation_type) && r.related_type?.toLowerCase() === "group"
+  );
   if (groupRel?.related_name) {
     list.push({
       key: "group",
@@ -335,6 +408,57 @@ const infoTags = computed(() => {
 
   return list;
 });
+
+// ── 组合成员 ──
+interface MemberEntry {
+  id: string;
+  name: string;
+  avatar: string;
+  country: string;
+}
+
+/**
+ * 当前艺人是组合时，relations 里 relation_type=member 的就是它的成员。
+ * related_id 为空（历史脏数据/成员已删除）直接过滤掉——没有 id 就跳不过去，
+ * 渲染一个点不动的卡片只会让用户困惑。
+ */
+const members = computed<MemberEntry[]>(() => {
+  const d = store.detail;
+  if (!d || d.type?.toLowerCase() !== "group") return [];
+  return (d.relations || [])
+    .filter((r) => /member/i.test(r.relation_type || "") && r.related_id)
+    .map((r) => ({
+      id: r.related_id,
+      name: r.related_name || r.related_id,
+      // 库里配了真实头像就用配置图，没配（related_avatar_url 为空串）时
+      // 由 getArtistAvatarSrc 按 type/gender 兜底，避免女成员显示男头像。
+      avatar: getArtistAvatarSrc({
+        avatar_url: r.related_avatar_url || undefined,
+        type: r.related_type,
+        gender: r.related_gender,
+      }),
+      country: r.related_country || "",
+    }));
+});
+
+/**
+ * 组合成员展示上限。
+ *
+ * 大型组合（成员几十人）会把这一段撑得很长，每个成员还带一张头像 ——
+ * 头像解码进内存，比节点本身重得多。24 个够看，超出部分折叠并给出提示。
+ */
+const MEMBERS_MAX = 24;
+const visibleMembers = computed(() => members.value.slice(0, MEMBERS_MAX));
+
+/** 作品集展示上限（同上：条目随运营数据无上限增长） */
+const WORKS_MAX = 20;
+const works = computed(() => store.detail?.works ?? []);
+const visibleWorks = computed(() => works.value.slice(0, WORKS_MAX));
+
+function toMember(m: MemberEntry) {
+  if (!m.id) return;
+  uni.navigateTo({ url: `/pages/artist/detail?id=${m.id}` });
+}
 
 function formatBirthday(d: string): string {
   if (!d) return "";
@@ -348,12 +472,16 @@ function formatBirthday(d: string): string {
   return d;
 }
 
-// ── 社交按钮:固定 5 个 ──
+// ── 社交按钮 ──
+// 匹配规则从「子串模糊匹配」改为「精确匹配别名表」。
+// 原来用 url_type.includes('x') 判 Twitter，mixcloud / bandcamp 这类值会误命中；
+// includes('line') 更是把 offline 之类也捞进来。url_type 是后台自由文本，
+// 宁可漏匹配（按钮置灰），也不能把链接挂到错误的平台上。
 interface SocialEntry {
-  key: string; // 与后端 url_type 匹配的小写关键字
+  key: string;
   label: string;
   icon: string;
-  url: string | null; // null = 无对应数据置灰
+  url: string | null; // null = 无对应数据，置灰不可点
 }
 
 const SOCIAL_DEFS: Array<{
@@ -363,10 +491,46 @@ const SOCIAL_DEFS: Array<{
   aliases: string[];
 }> = [
   {
-    key: "facebook",
-    label: "Facebook",
-    icon: "/static/icons/social-facebook.svg",
-    aliases: ["facebook"],
+    key: "twitter",
+    label: "Twitter",
+    icon: "/static/icons/social-twitter.svg",
+    aliases: ["twitter", "x", "x (twitter)", "twitter/x"],
+  },
+  {
+    key: "instagram",
+    label: "Instagram",
+    icon: "/static/icons/social-instagram.svg",
+    aliases: ["instagram"],
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    icon: "/static/icons/social-youtube.svg",
+    aliases: ["youtube", "youtube music", "youtube channel"],
+  },
+  {
+    key: "website",
+    label: "官网",
+    icon: "/static/icons/social-website.svg",
+    aliases: ["official homepage", "official website", "homepage", "website", "official site"],
+  },
+  {
+    key: "music",
+    label: "音乐平台",
+    icon: "/static/icons/social-music.svg",
+    aliases: ["streaming", "apple music", "spotify", "free streaming"],
+  },
+  {
+    key: "wechat",
+    label: "WeChat",
+    icon: "/static/icons/social-wechat.svg",
+    aliases: ["wechat", "weixin"],
+  },
+  {
+    key: "weibo",
+    label: "微博",
+    icon: "/static/icons/social-weibo.svg",
+    aliases: ["weibo", "sina weibo"],
   },
   {
     key: "line",
@@ -375,31 +539,21 @@ const SOCIAL_DEFS: Array<{
     aliases: ["line"],
   },
   {
-    key: "twitter",
-    label: "Twitter",
-    icon: "/static/icons/social-twitter.svg",
-    aliases: ["twitter", "x"],
-  },
-  {
-    key: "skype",
-    label: "Skype",
-    icon: "/static/icons/social-skype.svg",
-    aliases: ["skype"],
-  },
-  {
-    key: "wechat",
-    label: "WeChat",
-    icon: "/static/icons/social-wechat.svg",
-    aliases: ["wechat", "weixin"],
+    key: "facebook",
+    label: "Facebook",
+    icon: "/static/icons/social-facebook.svg",
+    aliases: ["facebook", "facebook page"],
   },
 ];
 
 const socials = computed<SocialEntry[]>(() => {
-  const urls = store.detail?.urls || [];
+  // 后端把头像(image/avatar)、biography、discogs 这类行也原样塞进 urls，
+  // 精确匹配天然会把它们过滤掉，不用在前端再维护一份黑名单。
+  const urls = (store.detail?.urls || []).filter((u) => u.url && u.url.trim());
   return SOCIAL_DEFS.map((def) => {
     const hit = urls.find((u) => {
-      const t = (u.url_type || "").toLowerCase();
-      return def.aliases.some((a) => t.includes(a));
+      const t = (u.url_type || "").trim().toLowerCase();
+      return def.aliases.includes(t);
     });
     return {
       key: def.key,
@@ -411,11 +565,14 @@ const socials = computed<SocialEntry[]>(() => {
 });
 
 function onSocialTap(s: SocialEntry) {
-  if (!s.url) return;
-  uni.setClipboardData({
-    data: s.url,
-    success: () => uni.showToast({ title: "链接已复制", icon: "none" }),
-  });
+  if (!s.url) {
+    uni.showToast({ title: `暂无${s.label}链接`, icon: "none" });
+    return;
+  }
+  // 交给系统处理：http(s) 走浏览器或已装 App，协议白名单校验在 openExternalUrl 内。
+  // 原来这里是 setClipboardData —— 用户点社交图标预期是「打开」，复制到剪贴板
+  // 既无反馈也无法直达，两者是完全不同的交互。
+  openExternalUrl(s.url, s.label);
 }
 
 // ── 作品集:日期格式化 ──
@@ -603,6 +760,25 @@ function toEventList() {
   word-break: break-all;
 }
 
+/* 订阅人数：放在简介下方，和上面 gap 24rpx 对齐 */
+.card-subscriber {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24rpx;
+}
+.card-subscriber-icon {
+  width: 28rpx;
+  height: 28rpx;
+  margin-right: 8rpx;
+  /* 图标是深色描边图，放在浅色主题底上会糊，加一层半透明白衬底 */
+  opacity: 0.75;
+}
+.card-subscriber-text {
+  font-size: 24rpx;
+  /* 颜色由内联 theme.ink 覆盖 */
+  color: #555;
+}
+
 .info-tags {
   display: flex;
   flex-wrap: wrap;
@@ -641,19 +817,37 @@ function toEventList() {
 }
 .social-row {
   display: flex;
-  justify-content: space-around;
-  align-items: center;
+  /* 平台数量会随 SOCIAL_DEFS 增长，固定每行 5 个并允许换行，
+     否则 9 个图标挤在一行会被压到 76rpx */
+  flex-wrap: wrap;
+  padding: 20rpx 0;
 }
 .social-btn {
+  width: 20%;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 14rpx 0;
 }
 .social-icon {
-  width: 140rpx;
-  height: 140rpx;
-  border-radius: 50rpx;
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 24rpx;
   overflow: hidden;
+}
+/* 无链接的平台置灰。之前注释写了「置灰」但一直没实现，
+   5 个图标全亮着、点下去又毫无反馈，用户会以为功能坏了 */
+.social-btn--empty {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+
+/* 区块统一左右留白。
+   .section-title-row 自带 padding:20rpx 30rpx，卡片却直接顶到屏幕两边 ——
+   这个类之前全项目都没有定义。补 margin 后必须把标题行的水平 padding 去掉，
+   否则标题会变成 30 + 30 = 60rpx 双重缩进，和卡片对不齐 */
+.section-pad {
+  margin: 0 30rpx;
 }
 
 .section-title-row {
@@ -661,7 +855,8 @@ function toEventList() {
   align-items: flex-end;
   justify-content: space-between;
   margin-bottom: 20rpx;
-  padding: 20rpx 30rpx;
+  /* 水平留白交给 .section-pad，这里只留垂直间距 */
+  padding: 20rpx 0;
 }
 .section-title {
   font-size: 32rpx;
@@ -696,6 +891,70 @@ function toEventList() {
 .no-event-text {
   font-size: 26rpx;
   color: rgba(153, 153, 153, 1);
+}
+
+/* 列表折叠提示（如「仅显示前 24 位，共 38 位」） */
+.list-cap {
+  display: flex;
+  justify-content: center;
+  padding: 20rpx 0 4rpx;
+}
+.list-cap-text {
+  font-size: 22rpx;
+  color: rgba(153, 153, 153, 1);
+}
+
+/* 组合成员 */
+.members-card {
+  background: #fff;
+  border-radius: 30rpx;
+  border: 1rpx solid rgba(236, 236, 236, 1);
+  box-shadow: 0 10rpx 30rpx 0 rgba(0, 0, 0, 0.05);
+  /* 竖向 padding 略小于作品集，成员本身行高就小，太多留白会显得松散 */
+  padding: 8rpx 30rpx;
+}
+.member-item {
+  display: flex;
+  align-items: center;
+  /* 每个成员之间一条极淡的分隔线，最后一条不画（用 :last-child 兜掉） */
+  border-bottom: 1rpx solid rgba(240, 240, 240, 1);
+  padding: 20rpx 0;
+}
+.member-item:last-child {
+  border-bottom: none;
+}
+.member-item--hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.member-avatar {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  /* 库里的默认头像是白底图，加浅描边避免和卡片融在一起 */
+  background: #f5f6f8;
+  flex-shrink: 0;
+}
+.member-meta {
+  flex: 1;
+  /* margin-left:auto 让 uni-icons 靠右贴边，同时保证长名字有 ellipsis 的宽度上限 */
+  margin-left: 20rpx;
+  margin-right: 12rpx;
+  overflow: hidden;
+}
+.member-name {
+  display: block;
+  font-size: 28rpx;
+  color: rgba(35, 34, 39, 1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-country {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(120, 124, 133, 1);
+  margin-top: 4rpx;
 }
 
 /* 作品集 */

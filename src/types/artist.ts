@@ -36,9 +36,25 @@ export interface ArtistDetail extends Artist {
   } | null
   aliases: { name: string; locale: string }[]
   genres: { genre_code: string; confidence: number }[]
-  relations: { related_id: string; related_name: string; relation_type: string }[]
-  urls: { url: string; url_type: string }[]
-  works: ArtistWork[]
+  // urls / works / relations 后端查不到行时序列化成 null（GORM 的 nil slice），
+  // 不是空数组。声明成必填非空数组会让任何一处 .map() 直接炸，
+  // 当前只靠 detail.vue 里的 ?.length 和 || [] 侥幸兜住。
+  urls: { id: number; url: string; url_type: string }[] | null
+  works: ArtistWork[] | null
+  // related_* 由后端联表 artists 带出（只读，不落库）；
+  // 库里没配头像时 related_avatar_url 为空串，客户端按 related_type/related_gender 兜底。
+  relations: {
+    id: number
+    artist_id: string
+    related_id: string
+    related_name: string
+    relation_type: string
+    direction: string
+    related_avatar_url: string
+    related_country: string
+    related_type: string
+    related_gender: string
+  }[] | null
   events?: {
     id: number
     title: string

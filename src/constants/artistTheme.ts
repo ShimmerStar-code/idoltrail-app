@@ -159,24 +159,48 @@ function findPaletteByBase(base: string): ArtistTheme | null {
 /**
  * 解析艺人主题色。
  *
- * @param themeColor 后端下发的 artists.theme_color，可空
- * @param seed       哈希种子，一般传 artist_id；为空时退化为中性色
+ * 结果记忆化：本函数是纯函数（相同入参必得相同输出），但每次调用都要跑一遍
+ * normalizeHex 正则 + 可能的 hexToHsl/hslToHex 转换 + 对象展开。
+ * 列表页每张 EventCard 的 theme computed 都会调它一次，且重渲染时被反复调用，
+ * 而入参只有「后台配的 theme_color」与「artist_id」两种 —— 取值集合极小。
+ * 故按入参缓存返回值，避免重复的颜色转换。
+ *
+ * ⚠️ 必须返回同一个对象引用而非副本：调用方（EventCard 等）只读不写，
+ *    共享引用反而让 Vue 的依赖比对更早短路。若将来有调用方就地修改返回值，
+ *    需要改成返回浅拷贝。
  */
+const _themeCache = new Map<string, ArtistTheme>();
+
 export function resolveArtistTheme(
   themeColor?: string | null,
   seed?: string | null,
 ): ArtistTheme {
-  const norm = normalizeHex(themeColor);
+  // 空串与 null 归一为同一 key，避免缓存被等价入参切碎
+  const colorKey = normalizeHex(themeColor) ?? "";
+  const seedKey = (seed ?? "").trim();
+  const cacheKey = `${colorKey}|${seedKey}`;
+  const hit = _themeCache.get(cacheKey);
+  if (hit) return hit;
+
+  const norm = colorKey || null;
+  let result: ArtistTheme;
   if (norm) {
     // 后台选的就是板内色 → 精确命中，ink 与运营在后台看到的配套色一致
     const preset = findPaletteByBase(norm);
-    if (preset) return preset;
-    return deriveThemeFromHex(norm);
+    if (preset) {
+      result = preset;
+    } else {
+      result = deriveThemeFromHex(norm);
+    }
+  } else if (!seedKey) {
+    result = { ...NEUTRAL_ARTIST_THEME };
+  } else {
+    const idx = stableHash(seedKey) % ARTIST_THEME_PALETTE.length;
+    result = { ...ARTIST_THEME_PALETTE[idx] };
   }
-  const key = (seed ?? "").trim();
-  if (!key) return { ...NEUTRAL_ARTIST_THEME };
-  const idx = stableHash(key) % ARTIST_THEME_PALETTE.length;
-  return { ...ARTIST_THEME_PALETTE[idx] };
+
+  _themeCache.set(cacheKey, result);
+  return result;
 }
 
 /** 判断一个颜色是否落在预设浅色板内（后台 Web 端校验用） */

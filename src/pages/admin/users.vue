@@ -18,7 +18,7 @@
       <scroll-view scroll-y class="list">
         <view v-for="u in users" :key="u.id" class="user-card">
           <!-- lazy-load：管理端用户列表每页 N 个头像，加载后随滚动陆续加载 -->
-          <image class="avatar" :src="u.avatar_url || '/static/logo.png'" lazy-load />
+          <image class="avatar" :src="getUserAvatarSrc(u)" lazy-load />
           <view class="info">
             <text class="nick">{{ u.nickname || '(未设置)' }}</text>
             <text class="meta">ID: {{ u.id }} · {{ statusLabel(u.status) }}</text>
@@ -40,6 +40,7 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { ADMIN_ENABLED } from '@/utils/env'
 import { adminRequest, redirectToAdminLogin } from '@/utils/adminToken'
+import { getUserAvatarSrc } from '@/utils/avatar'
 
 const statusBarHeight = ref(20)
 statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 20

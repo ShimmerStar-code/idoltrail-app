@@ -64,7 +64,7 @@
           <view v-else-if="!events.length" class="empty">该场馆暂无活动</view>
 
           <view
-            v-for="(ev, idx) in events"
+            v-for="(ev, idx) in visibleEvents"
             :key="ev.id"
             class="event-card"
             :class="idx % 2 === 0 ? 'card-orange' : 'card-green'"
@@ -104,6 +104,11 @@
               </view>
             </view>
           </view>
+          <!-- 场馆活动接口目前后端没有分页，响应体大小完全取决于该场馆的历史活动数。
+               客户端加一道展示上限，避免老场馆一次渲染几百张卡把页面拖垮。 -->
+          <view v-if="events.length > visibleEvents.length" class="empty">
+            仅显示最近 {{ visibleEvents.length }} 场，共 {{ events.length }} 场
+          </view>
         </view>
       </view>
       <view v-else class="loading">加载中...</view>
@@ -129,6 +134,10 @@ const place = ref<Place | null>(null)
 const events = ref<PlaceEvent[]>([])
 const loadingEvents = ref(true)
 
+/** 场馆活动展示上限（接口无分页时的客户端兜底） */
+const PLACE_EVENTS_MAX = 30
+const visibleEvents = computed(() => events.value.slice(0, PLACE_EVENTS_MAX))
+
 // 自绘导航栏尺寸：状态栏高度 + 右上角避让
 const { statusBarHeight, navRightPadding } = getNavBarMetrics()
 
@@ -142,19 +151,32 @@ function goBack() {
   }
 }
 
-// place_type 枚举 → 中文显示（参考后端 place_type_ref）
+// place_type 枚举 → 中文显示（对应后端 place_type_ref，migration 0051 起统一 Title Case）
 const PLACE_TYPE_MAP: Record<string, string> = {
   Indoor: '室内场馆',
   Outdoor: '户外场馆',
   Livehouse: 'Livehouse',
   Club: '俱乐部',
   Park: '公园',
+  Stadium: '体育场',
+  Arena: '体育馆',
 }
-const placeTypeText = computed(() =>
-  place.value ? PLACE_TYPE_MAP[place.value.type] || place.value.type : '')
+const placeTypeText = computed(() => {
+  if (!place.value?.type) return ''
+  // 0051 之前 places.type 大小写混写（indoor / Outdoor / stadium），
+  // 兜底做一次首字母大写归一，避免旧数据渲染出英文原值
+  const t = place.value.type
+  return PLACE_TYPE_MAP[t] ?? PLACE_TYPE_MAP[`${t.charAt(0).toUpperCase()}${t.slice(1)}`] ?? t
+})
 
-// event_type 枚举 → 短缩写（卡片上"Fmt"位）
+// event_type 枚举 → 短缩写（卡片上"Fes"位）
+// key 必须是 event_type_ref.type_code；旧值（0051 之前）保留兼容
 const EVENT_TYPE_SHORT: Record<string, string> = {
+  CONCERT: 'Con',
+  FESTIVAL: 'Fes',
+  FAN_MEETING: 'Fmt',
+  ANIME_EXPO: 'Expo',
+  CONCERT_HALL: 'CH',
   Concert: 'Con',
   'Music_Festival': 'Fes',
   'Fan_Meeting': 'Fmt',
@@ -162,7 +184,7 @@ const EVENT_TYPE_SHORT: Record<string, string> = {
   'Concert_Hall': 'CH',
 }
 function formatType(t: string) {
-  return EVENT_TYPE_SHORT[t] || t
+  return EVENT_TYPE_SHORT[t] ?? EVENT_TYPE_SHORT[t.toUpperCase()] ?? t
 }
 
 const aliasesText = computed(() => {
@@ -253,23 +275,29 @@ onLoad(async (options) => {
     return
   }
 
-  try {
-    place.value = await placeApi.detail(String(id))
+  // 详情与活动列表并发拉取：串行是 2 个 RTT 叠加，且详情失败会 return，
+  // 活动列表永远不发请求（场馆页下半屏整片空白）。
+  loadingEvents.value = true
+  const [detailRes, eventsRes] = await Promise.allSettled([
+    placeApi.detail(String(id)),
+    placeApi.events(String(id)),
+  ])
+
+  if (detailRes.status === 'fulfilled') {
+    place.value = detailRes.value
     // 同步系统导航栏标题为场馆名
     uni.setNavigationBarTitle({ title: place.value.name })
-  } catch (e: any) {
+  } else {
+    const e = detailRes.reason
     uni.showToast({ title: e?.message || '场馆加载失败', icon: 'none' })
-    return
   }
 
-  try {
-    const res = await placeApi.events(String(id))
-    events.value = res.list || []
-  } catch {
+  if (eventsRes.status === 'fulfilled') {
+    events.value = eventsRes.value.list || []
+  } else {
     events.value = []
-  } finally {
-    loadingEvents.value = false
   }
+  loadingEvents.value = false
 })
 </script>
 
