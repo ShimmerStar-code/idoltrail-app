@@ -2,7 +2,7 @@
     "name" : "idoltrail",
     "appid" : "__UNI__F1F9279",
     "description" : "演唱会 / 音乐活动信息平台",
-    "versionName" : "0.1.0",
+    "versionName" : "0.1.1",
     "versionCode" : "100",
     "transformPx" : false,
     "app-plus" : {
@@ -78,7 +78,9 @@
                 "capabilities" : {
                     "entitlements" : {
                         "com.apple.developer.associated-domains" : []
-                        /* ── Sign in with Apple ──
+                    }
+                },
+                /* ── Sign in with Apple ──
                            保持注释状态，启用需三步同时完成（缺一按钮必失败）：
 
                              1. Apple Developer 后台为 App ID 启用 Sign in with Apple；
@@ -93,10 +95,7 @@
                             APPLE_PRIVATE_KEY_PATH 也需就位，见后端 .env.prod。
 
                         "com.apple.developer.applesignin" : ["Default"]
-                        */
-                    }
-                },
-                /* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
+                        *//* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
      本 App 未接入任何广告追踪（"idfa": false，代码中无 ATT 调用）。
      声明 ATT 用途却不请求授权，是 App Store 审核的常见拒审点。 */
                 "privacyDescription" : {
@@ -141,20 +140,51 @@
             /* 分享说明：src/utils/share.ts 走 plus.share.sendWithSystem 调起系统分享面板，
                不依赖微信 / QQ / 微博 SDK，因此这里不需要任何 sdkConfigs 配置。
                若日后要接三方内部分享，需在此填入各厂商 appid / appsecret。 */
+            /* 图标源图是 src/static/logo.png（1024x1024，保留原始清晰度供后续再加工），
+               下列各尺寸由它等比缩放而来，统一放在 src/static/icons/app/ 下入库。
+               刻意不用 unpackage/：那是 HBuilderX 的云打包与原生编译**产物目录**
+               （.gitignore 已忽略），图标放进去不会随仓库走，别人克隆后打包必然缺图。 */
             "icons" : {
                 "android" : {
-                    "hdpi" : "src/static/logo.png"
+                    "hdpi" : "src/static/icons/app/72x72.png",
+                    "xhdpi" : "src/static/icons/app/96x96.png",
+                    "xxhdpi" : "src/static/icons/app/144x144.png",
+                    "xxxhdpi" : "src/static/icons/app/192x192.png"
+                },
+                "ios" : {
+                    "appstore" : "src/static/icons/app/1024x1024.png",
+                    "ipad" : {
+                        "app" : "src/static/icons/app/76x76.png",
+                        "app@2x" : "src/static/icons/app/152x152.png",
+                        "notification" : "src/static/icons/app/20x20.png",
+                        "notification@2x" : "src/static/icons/app/40x40.png",
+                        "proapp@2x" : "src/static/icons/app/167x167.png",
+                        "settings" : "src/static/icons/app/29x29.png",
+                        "settings@2x" : "src/static/icons/app/58x58.png",
+                        "spotlight" : "src/static/icons/app/40x40.png",
+                        "spotlight@2x" : "src/static/icons/app/80x80.png"
+                    },
+                    "iphone" : {
+                        "app@2x" : "src/static/icons/app/120x120.png",
+                        "app@3x" : "src/static/icons/app/180x180.png",
+                        "notification@2x" : "src/static/icons/app/40x40.png",
+                        "notification@3x" : "src/static/icons/app/60x60.png",
+                        "settings@2x" : "src/static/icons/app/58x58.png",
+                        "settings@3x" : "src/static/icons/app/87x87.png",
+                        "spotlight@2x" : "src/static/icons/app/80x80.png",
+                        "spotlight@3x" : "src/static/icons/app/120x120.png"
+                    }
                 }
             },
             "splashscreen" : {
                 "androidStyle" : "common",
                 "android" : {
-                    "hdpi" : "src/static/logo.png"
+                    "hdpi" : "src/static/icons/app/splash-750x1334.png"
                 },
                 "iosStyle" : "common",
                 "ios" : {
                     "iphone" : {
-                        "portrait-750x1334" : "src/static/logo.png"
+                        "portrait-750x1334" : "src/static/icons/app/splash-750x1334.png"
                     }
                 }
             }
