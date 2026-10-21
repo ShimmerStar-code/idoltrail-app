@@ -31,3 +31,9 @@
 
 # Lock 文件按纯文本处理，保证跨平台 npm install 行为一致
 package-lock.json text eol=lf
+
+# GitHub Actions 工作流：runner 在 Linux 上执行，CRLF 会导致 YAML 解析异常
+.github/workflows/*.yml text eol=lf
+
+# Shell 脚本：CRLF 会导致 "bad interpreter: /usr/bin/env bash^M"
+*.sh text eol=lf

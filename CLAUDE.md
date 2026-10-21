@@ -118,7 +118,8 @@ src/
 | `.env` | 否 | **不是给 Vite 用的**，是 uniCloud 云函数的环境变量（见下） |
 
 ```bash
-VITE_API_BASE_URL=http://103.24.218.69:8081/api/v1   # 测试服务器；必填，生产构建缺失或指向 localhost 会 fail build
+VITE_API_BASE_URL=http://103.24.218.69:8081/api/v1   # .env.dev：测试服务器；必填，生产构建缺失或指向 localhost 会 fail build
+                                                # .env.prod：https://api.idoltrail.com/api/v1（v2 隔离栈）
 VITE_PUSH_ENABLED=false                          # uni-push 开关
 VITE_DONATE_ENABLED=false                        # 捐赠入口总开关
 VITE_DONATE_IOS_ENABLED=false                    # iOS 需 StoreKit IAP，默认关
@@ -163,6 +164,13 @@ Go 服务在 `../idoltrail-server-main`，当前对接的测试服务器为 `103
 
 **禁止对该主机的任何写操作**：部署、发布、`docker compose up/down/restart`、`docker build/load`、改 `/home/dev/**` 下任何文件、改或重载 Nginx/容器/systemd、执行 `../idoltrail-server-main/scripts/` 下的任何脚本（**它们全部以 221 为目标**）。
 
+> 例外：`api.idoltrail.com` / `admin.idoltrail.com` 是该主机上的 **v2 隔离栈**独立 vhost
+> （`/api/` → `idoltrail-backend-api2`，`/` → `idoltrail-admin-v2`），
+> 数据落在独立库 `idoltrail`（容器 `idoltrail-mysql2`），与生产库无交集。
+> 对 `/home/dev/idoltrail-backend-v2/`、`/home/dev/idoltrail-admin-v2/` 的写操作已获逐次授权，
+> 但**不得触碰**同机上的生产目录、生产容器与生产 nginx 站点。
+> App 的生产包（`.env.prod`）当前指向 `https://api.idoltrail.com/api/v1`，即这条 v2 通道。
+
 允许的只有只读排查：`ls`、`cat`、`docker ps`、`docker inspect`、`systemctl status`、`ss -lntp`、`curl` 只读探测。
 
 **未经用户逐次明确授权，不得以任何理由写入该主机。** 若误改，立即停止、用备份回滚并知会负责人。
@@ -170,6 +178,8 @@ Go 服务在 `../idoltrail-server-main`，当前对接的测试服务器为 `103
 > 已发生过一次误部署：admin-web 曾按 `scripts/upload-and-deploy.sh` 里的 `SERVER="47.94.165.221"` 被部署到正式机（该脚本会清空并覆盖 `/home/dev/idoltrail-admin`），已从备份 `/home/dev/idoltrail-admin.bak.<ts>` 回滚。**不要照搬脚本里的主机常量，先确认该主机定位。**
 
 测试前端 admin-web 部署在 **`103.24.218.69`** 的 Nginx（`http://103.24.218.69/`，站点配置 `/etc/nginx/sites-available/idoltrail-admin`，站点文件 `/home/dev/idoltrail-admin`，`/api/` 反代 `127.0.0.1:8081`），连的是 69 的后端。
+
+v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltrail.com/` 为后台主入口，`https://api.idoltrail.com/` 根路径也挂同一份，站点文件 `/home/dev/idoltrail-admin-v2/`，`/api/` 反代 `idoltrail-backend-api2`），连的是 v2 隔离库。
 
 ## 推送（uni-push 2.0）
 
@@ -203,6 +213,11 @@ npm run type-check   # vue-tsc --noEmit
 npm run lint         # eslint .
 npm run build:app    # App 资源构建，产物 dist/build/app
 ```
+
+## 构建与发布
+
+CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试，打 `v*.*.*` tag 产出
+可交付的 App 资源包 artifact（APK/IPA 仍由 DCloud 云打包出，CI 不碰服务器、不需要任何 Secrets）。
 
 ## 管理后台
 

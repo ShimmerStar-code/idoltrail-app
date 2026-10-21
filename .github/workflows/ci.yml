@@ -1,0 +1,79 @@
+name: CI
+
+# 提交代码时的验证流水线：只构建和测试，绝不部署、不打 tag。
+# App 的「发布」是 DCloud 云打包 + 应用商店分发，见 DEPLOY.md。
+# 打 tag 触发 release.yml 产出可交付的 App 资源包。
+#
+# workflow_call 让本文件可被 release.yml 复用（needs: verify），
+# 保证「打 tag = 未经任何测试直接产出交付包」这件事不会发生。
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 环境校验 / lint / 类型检查 / 构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # 统一 npm，走 package-lock.json 可复现安装。
+      # 注意：vue / @vue/runtime-core 必须锁死 3.4.21、pinia 锁 2.2.4，
+      # 原因见 CLAUDE.md「依赖版本锁定」，不要用 ^ 放宽。
+      - name: 安装依赖
+        run: npm ci
+
+      # 环境文件守卫：dev/prod 字段集合一致、只允许 VITE_*、
+      # 生产基址不得缺失/指向本机/指向测试服或 http 明文。
+      - name: 环境文件校验
+        run: npm run check:env
+
+      - name: lint
+        run: npm run lint
+
+      - name: 类型检查
+        run: npm run type-check
+
+      # uni build -p app --mode=prod：产出 dist/build/app（HBuilderX 可导入的资源包）
+      - name: 构建 App 资源
+        run: npm run build:app
+
+      # 构建产物里不该出现测试服 / 生产机地址。
+      - name: 校验产物地址
+        run: |
+          set -eu
+          bad=$(grep -roE 'https?://(103\.24\.218\.69|47\.94\.165\.221|apitest\.idoltrail\.com|admintest\.idoltrail\.com)[^"'"'"' )]*' dist/build/app/ || true)
+          if [ -n "$bad" ]; then
+            echo "::error::构建产物里出现了测试服/生产机地址："
+            echo "$bad"
+            exit 1
+          fi
+          echo "产物地址检查通过"
+
+      - name: 上传构建产物
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-resources-${{ github.run_id }}
+          path: dist/build/app/
+          retention-days: 7

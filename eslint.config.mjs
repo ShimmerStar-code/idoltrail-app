@@ -10,6 +10,10 @@ export default [
   {
     ignores: [
       'dist/**',
+      // HBuilderX GUI「运行/发行」输出的整包资源（uni-app-view.umd.js、app-service.js
+      // 等压缩产物）。它在 .gitignore 里，不入库，也不该被 lint —— 扫它会刷出
+      // 几千条 no-undef / no-unused-expressions 假 error，把 npm run lint 的信号淹掉。
+      'unpackage/**',
       'node_modules/**',
       // pages.json 里 custom:true 要求存在此目录，由 pages.json + 各页面里的
       // 自研 <TabBar> 承担渲染，这里只是满足微信的目录约定，不是 TS/Vue 源码。
