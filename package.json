@@ -12,6 +12,7 @@
     "build:app-ios": "npm run check:env && uni build -p app-ios --mode=prod",
     "build:h5": "npm run check:env && uni build --mode=prod",
     "check:env": "node scripts/check-env-files.mjs",
+    "export:agreements": "node scripts/export-agreements.mjs",
     "type-check": "vue-tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
