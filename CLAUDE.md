@@ -132,6 +132,43 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
   （`io.dcloud` 基础模块、`com.igexin`、`com.zx`、`com.bun.miitmdid`、
   `com.zui.opendeviceidlibrary`、`com.netease.nis`、`com.samsung.android`、`com.huawei.hms`）。
 
+#### 协议正文的四处快照与发布顺序
+
+**「服务端统一下发」实际只下发了版本号；正文是四份各自构建期的快照。**
+`getEffectiveAgreement()` 只在服务端版本**严格高于**包内版本时才采用服务端正文，
+而两端都锁在 `v1.0.0` → 比较结果恒为 0 → **服务端正文永远不生效**。
+所以正文一致性靠**发布**保证，不靠运行时拉取。
+
+| 快照 | 载体 | 什么时候生成 | 改正文后如何生效 |
+|------|------|------------|----------------|
+| App 包内 | `src/constants/agreements.ts` + `src/static/*.html` | `npm run build:app` | 重新打包 App（已上架则需重新提审） |
+| 服务端 | `../idoltrail-server-main/internal/agreements/content.json`（`go:embed`） | `npm run export:agreements` + 重新构建镜像 | 部署后端：`release-v2.yml` → 只重建 `api2` 容器 |
+| 生产官网 | `www.idoltrail.com/privacy` | 官网 `npm run build`（从 App 仓真源导出） | 部署官网：`idoltrail-web/scripts/install-prod-site.sh` |
+| 运营后台 | `admin.idoltrail.com/privacy` | 运行时读 v2 API | 跟随 v2 API 发布 |
+
+**改协议正文的发布顺序**（漏一步就是「网页版与 App 不一致」，商店会以此打回）：
+
+1. 改 `src/constants/agreements.ts`（**版本号不动**，只改正文）
+2. `npm run export:agreements` → 同步服务端 `content.json` + 包内静态 HTML
+3. `npm run check:agreements` → 版本锁 + 三处同源守卫
+4. **先提交 App 仓**：官网 CI 会 checkout App 仓 main 取正文，
+   **App 仓不先提交，官网 CI 会构建出旧正文**（`source_hash` 断言仍会通过，因为它比的是自洽性）
+5. 提交服务端仓 → 触发 `release-v2.yml`（`ref` 指向含新 `content.json` 的提交）→ 只重建 `api2`
+6. 构建并部署生产官网 → 冒烟里「协议页与发布包逐字一致」通过才算完成
+7. 复验四处正文一致（发布日期 / 字节数 / 关键条款）
+
+> **官网发布必须 `--force-recreate` nginx**：站点目录是整份替换（inode 变了），
+> 而容器里的 bind mount 绑的是旧 inode；compose 配置没变时 `up -d nginx` 会 no-op，
+> 脚本全绿、冒烟也过，线上返回的还是上一版正文。已修进 `install-prod-site.sh`。
+
+**商店审核的隐私政策 URL 只能是 `https://www.idoltrail.com/privacy`**：
+
+- `https://idoltrail.com/privacy` 是**生产正式栈**的后台页，其 API 指向
+  `apitest.idoltrail.com`（正式栈，**禁改红线**），而正式栈没有 `/public/agreements` 路由
+  → 页面正文空白。不要提交这个 URL。
+- `https://api.idoltrail.com/api/v1/public/agreements` 返回 JSON，只适合机器抓取。
+
+
 ### 请求层
 
 页面**不得**直接调用 `uni.request`，一律走 `src/utils/request.ts`。

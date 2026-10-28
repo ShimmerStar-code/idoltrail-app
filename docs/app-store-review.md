@@ -22,6 +22,28 @@
 | 隐私政策链接打不开 | 原生弹窗走包内静态页（离线可读）；App 内走**当前生效版本**（包内兜底 + 服务端缓存） | ✅ |
 | 隐私政策与实际采集行为一致 | 每次改动采集行为都要同步改协议正文；**版本号强制锁定 v1.0.0 不递增**（递增会让存量用户同意失效且签署记录失配），改完跑 `npm run export:agreements` 让三处同源，`npm run check:agreements` 校验 | ✅ |
 
+> ⚠️ **正文一致 ≠ 版本号一致**：版本号锁死意味着「服务端正文」永远不会被 App 采用
+> （`compareVersion` 要求服务端版本严格更高），**正文一致性完全靠发布顺序保证**。
+> 2026-10-28 商店以「后台网页隐私政策与本 App 不一致」打回，根因就是：
+> 2026-10-26 那轮整改正文只同步到了 **App 包 + 测试环境**，
+> 生产官网（`www.idoltrail.com`）与生产 v2 API 还停在 **2026-10-21** 版。
+> 发布顺序见 `CLAUDE.md` →「协议正文的四处快照与发布顺序」。
+
+### 1.0.1 提交给商店的「隐私政策访问地址」
+
+**只填 `https://www.idoltrail.com/privacy`。**
+
+| URL | 能不能给商店 | 说明 |
+|-----|--------------|------|
+| `https://www.idoltrail.com/privacy` | ✅ **给这个** | 生产官网的协议页，正文**构建期内嵌在 HTML 源码里**，抓取器不执行 JS 也能读到全文 |
+| `https://idoltrail.com/privacy` | ❌ 不要给 | 生产**正式栈**的后台页，API 指向 `apitest.idoltrail.com`（正式栈，禁改），该栈没有 `/public/agreements` 路由 → **正文空白** |
+| `https://admin.idoltrail.com/privacy` | ❌ 不要给 | v2 后台页，内容由 JS 运行时从 v2 API 取，抓取器拿到的是空壳；且需登录态才能进控制台 |
+| `https://api.idoltrail.com/api/v1/public/agreements` | ⚠️ 仅机器抓取用 | 返回 JSON，商店要求的是「可访问的网页」 |
+
+改协议正文后，**必须**重跑官网发布（`idoltrail-web/scripts/install-prod-site.sh`），
+否则商店抓到的仍是上一版正文 —— 该脚本的冒烟会逐字比对「协议页 vs 发布包」，
+不一致直接判失败。
+
 ### 1.1 「同意前不收集个人信息」做了什么
 
 同意之前，App **只做一件事**：下载一张默认头像图片（静态资源，不带任何设备标识）。
@@ -161,7 +183,7 @@ watch 到状态仍为 true 就**再弹一遍**（两层 mask 叠在一起，点�
 | **类目资质** | 按所选类目提供（如"演出/票务"类需要的资质） | 运营 |
 | **测试账号** | 需登录的 App 必须提供可用的测试账号 + 密码 | 运营 |
 | **隐私标签 / 数据安全表** | 华为的"数据安全"表单必须与《隐私政策》一致 | 提审人 |
-| **隐私政策访问地址** | 商店要求可访问的 HTTPS 链接（后台 `GET /public/agreements` 已提供，需挂到官网） | 运维 |
+| **隐私政策访问地址** | 填 `https://www.idoltrail.com/privacy`（见 §1.0.1，**不要**填 `idoltrail.com/privacy`，那个页面是空白的） | 运维 |
 | **包名与签名** | 小米通道需用**云打包正式证书**上传；华为需在 AGC 登记包名 + 证书 SHA1 | 打包人 |
 
 > 提审前确认包名/签名与各厂商平台登记的完全一致，否则推送通道与部分 SDK 会静默失败。
@@ -181,6 +203,11 @@ watch 到状态仍为 true 就**再弹一遍**（两层 mask 叠在一起，点�
 - [ ] 《隐私政策》版本号与商店要求一致（当前锁定 v1.0.0），且与隐私标签填写内容逐条对应
 - [ ] `dist/build/app/androidPrivacy.json` 存在且 `prompt` 为 `template`；
       `dist/build/app/static/privacy.html` 存在（云打包会上传这两个文件）
+- [ ] **商店抓取到的网页正文与 App 内正文一致**（2026-10-28 打回点）：
+      打开 `https://www.idoltrail.com/privacy`，确认页面的「发布日期」与
+      `src/constants/agreements.ts` 里的 `POLICY_RELEASE_DATE` 相同；
+      不一致说明官网没重新发布（见 `CLAUDE.md` →「协议正文的四处快照与发布顺序」）
+- [ ] `https://idoltrail.com/privacy` 打不开或空白 → **不要**把这个 URL 交给商店，见 §1.0.1
 
 ---
 
