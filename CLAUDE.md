@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- uni-app（`@dcloudio/*` 3.0.0-4080420251103001）+ Vue 3 + TypeScript
+- uni-app（`@dcloudio/*` 3.0.0-5020620260917001，编译器 5.26）+ Vue 3 + TypeScript
 - Pinia 状态管理
 - uview-plus **未使用**；UI 组件走 `@dcloudio/uni-ui` 的 easycom
 - 构建：Vite 5 / HBuilderX CLI
@@ -17,6 +17,33 @@
 - 条件编译一律用 `#ifdef APP-PLUS` / `#ifndef APP-PLUS`，**全仓不存在 `#ifdef MP-WEIXIN`**。
 - 微信小程序由**独立代码库**维护，不在本工程内编译，详见 CLAUDE.md 顶部说明。
 - 不要引入 `uni.getMenuButtonBoundingClientRect()`（小程序专属），导航栏尺寸统一走 `src/utils/system.ts` 的 `getNavBarMetrics()`。
+
+### 隐私弹窗：首启的「同意」发生在原生层，不是自绘弹窗
+
+uni-app 的 **JS 启动比原生晚**，三方 SDK（uni-push / 厂商通道 / WebView 内核）在**原生插件加载时**
+就读取 OAID、Android ID、安装列表。若只在 JS 里自绘弹窗，采集必然早于弹窗 →
+国内商店判「未经用户同意即收集个人信息」（已真实被打回过，见 `docs/app-store-review.md`）。
+
+**正确链路（不要改回去）**：
+
+| 层 | 做法 |
+|----|------|
+| 原生 | `src/androidPrivacy.json` 的 `prompt: "template"`：原生模板弹窗在 splash 阶段挡住应用，**用户点同意后才加载原生插件**。`disagreeMode.support=false` + `loadNativePlugins=false` + `backToExit="true"` |
+| JS | 启动读 `plus.runtime.isAgreePrivacy()`（`utils/privacy.ts` `isNativePrivacyAgreed()`）：**原生已同意 → 同步本地状态，不再弹自绘弹窗**（自绘弹窗晚于 SDK 初始化，会让检测引擎误判） |
+| JS | 降级路径（原生弹窗未生效）：自绘弹窗同意 → `plus.runtime.agreePrivacy()`，拒绝 → `disagreePrivacy()`（`syncNativePrivacyAgree/Disagree()`） |
+| 资源 | 原生弹窗的协议链接指向包内 `static/privacy.html` / `static/user-agreement.html`，由 `npm run export:agreements` 与 `constants/agreements.ts` **同源生成** |
+
+> DCloud 官方口径：<https://uniapp.dcloud.net.cn/tutorial/app-privacy-android.html>
+> 「目前设置 custom 模式策略，并不能完全避免在弹出隐私提示框之前读取设备信息……
+> 碰到此问题的开发者请先使用 template 模式解决」。
+
+### 权限：必须由用户主动触发才申请
+
+- **定位**：首页与首屏**只走 IP 粗定位**（不申请任何系统权限）；
+  精确位置权限**只有**用户点「城市选择器 → 重新定位」时申请（`location.ts` 的 `precise: true`）。
+  首启 / 进首页就弹位置授权框会被判「强制、频繁、过度索取权限」。
+- 通知、相册、相机同理由用户主动操作触发。
+- `manifest.json` 不申请 `READ_PHONE_STATE`。
 
 ### 登录
 
@@ -56,8 +83,54 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
   且要用**包含该模块的自定义基座或云打包**安装才有该能力
 - H5 / 小程序端 `isOneKeyLoginSupported()` 恒 false，`#ifdef APP-PLUS` 与
   `#ifndef APP-PLUS` 两个分支都要写全（vue-tsc 直接检查源文件，两条分支都过一遍）
-- 改一键登录交互时，`src/constants/agreements.ts` 的 v1.4 隐私政策正文要同步，
+- 改一键登录交互时，`src/constants/agreements.ts` 的隐私政策正文要同步，
   文案里不能再出现已删除的「点击『本机号码一键登录』」表述（合规红线：政策须与实际行为一致）
+
+### 隐私政策 / 用户协议（服务端统一下发）
+
+协议正文的**权威来源是服务端**，App 内置的那份只是离线兜底：
+
+| 层 | 位置 | 作用 |
+|----|------|------|
+| 包内兜底 | `src/constants/agreements.ts` | 断网 / 后端未部署时用；同时是导出来源 |
+| 服务端 | `GET /api/v1/public/agreements` | 运行时权威来源，返回正文 + 版本号 |
+| 本地缓存 | `fans:agreements:cache` | 缓存服务端正文，下次启动离线可用 |
+
+- **版本号强制锁定 `v1.0.0`，不递增**。三处硬约束：
+  1. 服务端 `content.json` 是「当前生效版本」的唯一真源，登录时用它查 `user_agreements`
+     签署记录，App 上报版本必须与服务端**完全一致**，否则查不到那条记录 →
+     表现为「每次登录都判定未签协议并要求重新勾选」（这条链路历史上踩过一次）；
+  2. `user_agreements` 唯一键是 `(user_id, agreement_type, version)`，版本漂移 = 历史记录全部失配；
+  3. 递增版本会让存量用户的隐私同意失效（`hasPrivacyConsent` 比对「当前生效版本」），
+     下次启动集体重新弹窗。
+
+  **正文可以修订，版本号不动。** 要改版本 = 显式声明「协议版本变更」，必须同时改
+  `src/constants/agreements.ts` 的 `PRIVACY_VERSION` / `AGREEMENT_VERSION`、
+  `src/androidPrivacy.json` 的 `version`、后端 `internal/agreements/content_test.go`
+  的 `lockedVersion`，并重跑导出。
+- **版本号是唯一的刷新判据**：`src/utils/agreementContent.ts` 的 `compareVersion()`，
+  只有服务端版本**严格高于**当前生效版本才替换正文；相同或更低一律忽略（防回滚）。
+- 启动时 `src/App.vue` 的 `onLaunch` 调 `syncAgreementsFromServer()`：
+  **不 await、不阻塞启动**，失败静默降级到包内版本（`silent: true`，不弹 toast）。
+- 生效版本 = 服务端版本 > 包内版本时用服务端，否则用包内。
+  对外统一走 `getEffectiveAgreement()` / `getEffectiveVersion()`，**不要直接读常量**。
+- 同意状态比较的是**生效版本**（`src/utils/privacy.ts`），不是包内常量：
+  服务端发了新隐私政策 → 旧版本同意失效 → `invalidatePrivacyConsent()` → 重新弹
+  `PrivacyPopup`（reason = `policy_updated`）。用户同意后存的是当前生效版本。
+- 协议详情页、隐私弹窗、登录弹窗上报给后端的版本号都取生效版本，
+  后端据此判断 `missing_agreements`（用户协议补签走这条既有链路）。
+- **改了 `src/constants/agreements.ts` 必须跑 `npm run export:agreements`**，
+  把正文同步到 `../idoltrail-server-main/internal/agreements/content.json`；
+  后端 `go:embed` 编译进镜像，**不导出 + 不重新部署后端，线上正文不会变**。
+- **`npm run check:agreements` 是版本锁 + 三处同源的守卫**（CI 已接入）：
+  版本号必须是 `v1.0.0`；包内 `src/static/*.html`（原生弹窗落地页）必须与正文同源；
+  有后端仓时还会逐字比对服务端 `content.json`。
+  渲染逻辑在 `scripts/lib/agreements.mjs`，导出与校验共用同一份，避免两边漂移。
+- 政策正文的红线：不写内部字段名、双令牌机制、密钥管理、源码路径、
+  不存在的 UI 入口；但法定 SDK 名称、包名、权限、用途、隐私链接、采集字段、存储期限必须保留。
+  改 SDK 清单时按 DCloud 官方口径写全包名
+  （`io.dcloud` 基础模块、`com.igexin`、`com.zx`、`com.bun.miitmdid`、
+  `com.zui.opendeviceidlibrary`、`com.netease.nis`、`com.samsung.android`、`com.huawei.hms`）。
 
 ### 请求层
 
@@ -120,13 +193,22 @@ src/
 ```bash
 VITE_API_BASE_URL=http://103.24.218.69:8081/api/v1   # .env.dev：测试服务器；必填，生产构建缺失或指向 localhost 会 fail build
                                                 # .env.prod：https://api.idoltrail.com/api/v1（v2 隔离栈）
-VITE_PUSH_ENABLED=false                          # uni-push 开关
-VITE_DONATE_ENABLED=false                        # 捐赠入口总开关
-VITE_DONATE_IOS_ENABLED=false                    # iOS 需 StoreKit IAP，默认关
-VITE_DONATE_NATIVE_READY=false                   # Android 原生支付，后端对账接口未落地前必须关
-VITE_ADMIN_ENABLED=false                         # 内置管理后台入口，生产构建强制关
-VITE_APPLE_LOGIN_ENABLED=false                   # Apple 登录入口，默认关（见「一键登录」章节的启用条件）
 ```
+
+开关字段的实际取值（**dev / prod 两列都要照抄当前 .env 文件**，下表随文件改动同步更新）：
+
+| 字段 | `.env.dev` | `.env.prod` | 说明 |
+|------|-----------|------------|------|
+| `VITE_PUSH_ENABLED` | `true` | `true` | uni-push 2.0 总开关；关掉则只剩应用内通知 |
+| `VITE_DONATE_ENABLED` | `true` | `false` | 捐赠入口总闸，关闭时入口整个隐藏 |
+| `VITE_DONATE_IOS_ENABLED` | `false` | `false` | iOS 需 StoreKit IAP，默认关 |
+| `VITE_DONATE_NATIVE_READY` | `false` | `false` | Android 原生支付，后端对账接口未落地前必须关 |
+| `VITE_ADMIN_ENABLED` | `false` | `false` | 内置管理后台入口，生产构建再被 `checkAdminGate()` 按死一次 |
+| `VITE_APPLE_LOGIN_ENABLED` | `false` | `false` | Apple 登录入口，默认关（见「一键登录」章节的启用条件） |
+
+> ⚠️ `.env.dev` 的 `VITE_DONATE_ENABLED=true` 只在 `VITE_DONATE_NATIVE_READY=true` 时才有意义：
+> 后者关着时（当前状态，后端对账接口未落地）Android 端进 donate 页会看到「通道未开通」，
+> 属于开发期已知状态，**不要**据此以为捐赠链路已通。
 
 npm scripts 已带 `--mode=dev` / `--mode=prod`。**HBuilderX GUI 的运行/发行不经过 CLI**，
 它写死用 `development` / `production` 这两个 mode，因此 `vite.config.ts` 里的
@@ -206,6 +288,43 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
 - 改版本后必须清 `node_modules/.vite` 并重启 HBuilderX 的运行进程，
   Vite 依赖图只在进程启动时解析，热更新不会生效。
 
+### 升级 @dcloudio/* 的正确姿势
+
+**不要用 `npx @dcloudio/uvm@latest` 的默认 merge 流程。** 它按官方模板重写整个
+`package.json`，对本工程有三重破坏：
+
+- 写入 `vue: ^3.4.21` / `@vue/runtime-core: ^3.4.21`（caret）→ 解析到 3.5.x，
+  直接踩上面那条 `@vue/shared` 编译失败。
+- 引入 16 个 `uni-mp-*` 平台包 + `vue-i18n` + `@dcloudio/uni-automator` + `rollup`。
+  本工程是 App-only（微信小程序在 `idoltrail-wechat` 独立代码库），这些包纯属体积与噪音。
+- `@dcloudio/types` 会被写成 `^3.4.8`，而新 `uni-app` 的 peer 是**精确** `3.4.31`，
+  `^` 会解析到 3.4.32 造成 peer 冲突。
+
+正确做法：**手工精确 bump** `package.json` 里 8 个 `@dcloudio/*` 包到同一版本
+（`uni-app` / `uni-app-plus` / `uni-components` / `uni-h5` / `uni-push` /
+`uni-cli-shared` / `uni-stacktracey` / `vite-plugin-uni`），
+`@dcloudio/types` 钉到与 `uni-app` peer 一致的精确版本，
+`vue` / `@vue/runtime-core` / `pinia` 保持精确锁不动，然后 `npm install` + 清 `.vite` + 跑自检。
+
+版本号与 HBuilderX 的对应关系（`@dcloudio/vite-plugin-uni` 的 `uni-app.compilerVersion` 字段）：
+
+| npm 版本 | compilerVersion | 对应 HBuilderX |
+|----------|-----------------|-----------------|
+| `3.0.0-5020620260917001` | 5.26 | release 稳定版（当前） |
+| `3.0.0-alpha-5030220261016001` | 5.32 | alpha 通道（对应 5.32.2026101609-alpha） |
+
+`uvm` 只能识别**uni-app CLI 工程**（`package.json` 的 `devDependencies` 含
+`@dcloudio/vite-plugin-uni`），在 `idoltrail-web`（纯 Vue3+Vite 官网）里跑会报
+`Error: Invalid project`。真要用它查版本，`--project` **只能传绝对路径**
+（`path.join` 相对 CWD 解析会失败）：
+
+```bash
+npx.cmd @dcloudio/uvm@latest --project "C:\Users\trunk\Desktop\shimmer-star\idoltrail\idoltrail-app" --manager manual
+```
+
+`--manager manual` 只打印解析出的目标依赖集，不改文件。官网 `idoltrail-web` 的依赖升级
+用 `npm outdated` / `npx npm-check-updates`，不要用 uvm。
+
 ## 自检命令
 
 ```bash
@@ -233,7 +352,9 @@ CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试
 1. `src/manifest.json` 的 `appid` 已是真实 DCloud AppID `__UNI__F1F9279`（已与 DCloud 后台核对），**不要再改成占位符**。
 2. `src/pages/admin/` 未从包内移除（`pages.json` 无法按 mode 条件编译）。已通过构建期开关封死入口，但要彻底消除需后端对 `/admin/*` 加来源校验，并把后台迁到独立 Web 控制台。
 3. 隐私政策正文已与 App 实际采集数据对齐（不再声明微信 openid / unionid），上架前仍需人工复核一遍 `privacyDescription` 与实际 SDK 采集行为是否一致。
-4. Android 原生支付仍是 stub，`VITE_DONATE_NATIVE_READY` 保持 `false`，等后端 `/donations/wx-app`、`/donations/alipay` 的对账接口落地后再开。
+4. Android 原生支付的**客户端**已实现（`src/utils/nativePay.ts` 走 `uni.requestPayment`），
+   缺的是后端 `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，
+   因此 `VITE_DONATE_NATIVE_READY` 保持 `false`。
 5. 一键登录依赖 3 件外部条件，缺一则入口静默消失（不会崩，但功能等于没上线）：
    DCloud 后台已为 `__UNI__F1F9279` 开通一键登录服务、云函数 `univerify-exchange`
    已上传并 URL 化、后端已填 `UNIVERIFY_*`。真机验证必须用**含 OAuth 模块的基座或云打包**，

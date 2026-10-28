@@ -13,7 +13,7 @@
 
       <image class="logo" src="/static/logo.png" mode="aspectFit" />
       <text class="title">登录 idoltrail</text>
-      <text class="subtitle">登录后可订阅偶像、活动提醒、收藏等</text>
+      <text class="subtitle">登录后可订阅偶像、接收活动提醒</text>
 
       <!-- 协议勾选：一键登录的**前置门槛**。
            勾选框上移到登录方式之前，让「先同意、再登录」符合直觉；
@@ -120,9 +120,10 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
-import { getAgreementVersion } from '@/constants/agreements'
+import { getEffectiveAgreementVersion } from '@/utils/agreementContent'
 import { isAppleIAPPlatform } from '@/utils/nativePay'
 import { APPLE_LOGIN_ENABLED } from '@/utils/env'
+import { hasPrivacyConsent } from '@/utils/privacy'
 import {
   isOneKeyLoginSupported,
   isOneKeyDisabledForever,
@@ -135,7 +136,7 @@ import {
 import { ERRNO_ONE_KEY_UNAVAILABLE, ERRNO_ONE_KEY_EXCHANGE_FAILED } from '@/types/auth'
 
 const userStore = useUserStore()
-const { showLoginModal, loginModalOptions } = storeToRefs(userStore)
+const { showLoginModal, loginModalOptions, globalOverlaySuspended } = storeToRefs(userStore)
 
 const popupRef = ref<any>(null)
 
@@ -253,6 +254,13 @@ const oneKeyHint = computed(() => {
  * 探测失败一律静默：那是「这台设备用不了」，不该在用户还没做任何操作时冒错误提示。
  */
 async function probeOneKeyLogin() {
+  // 未取得隐私政策同意前不得探测一键登录能力：
+  // preLogin 会访问运营商网关并读取本机 SIM / 运营商状态，属于个人信息处理。
+  // 正常情况下登录框只在隐私同意之后才可能被打开，这里是显式兜底。
+  if (!hasPrivacyConsent()) {
+    oneKeyAvailable.value = false
+    return
+  }
   if (!isOneKeyLoginSupported()) {
     oneKeyAvailable.value = false
     return
@@ -409,6 +417,9 @@ function startCountdown(seconds: number) {
 // immediate: true —— App.vue onLaunch 可能在本组件 mount 之前就已经把 showLoginModal 设成 true
 watch(showLoginModal, (show) => {
   if (show) {
+    // 协议详情页期间抑制：PageLayout 在每个页面都挂了本组件，从登录弹窗跳去读协议时，
+    // 新页面上的实例会 watch 到 showLoginModal=true 再弹一次登录框（用户反馈"弹窗跳两次"）。
+    if (globalOverlaySuspended.value) return
     agreed.value = false
     submitting.value = false
     signingAgreements.value = false
@@ -432,6 +443,8 @@ watch(showLoginModal, (show) => {
 
 onMounted(() => {
   if (showLoginModal.value) {
+    // 协议详情页内不弹（见 watch 里的同款说明）
+    if (globalOverlaySuspended.value) return
     nextTick(() => tryOpenPopup())
     void probeOneKeyLogin()
   }
@@ -464,6 +477,9 @@ function onCodeInput(e: any) {
 }
 
 function openAgreement(type: string) {
+  // 协议页期间抑制全局浮层：协议页会再挂一份 LoginModal / PrivacyPopup 实例，
+  // 不抑制就会在协议页上再弹一次登录框 / 隐私弹窗。
+  userStore.suspendGlobalOverlay()
   uni.navigateTo({ url: `/pages/agreement/detail?type=${type}` })
 }
 
@@ -539,7 +555,7 @@ async function finishLogin(resp: { agreement_required: boolean; missing_agreemen
     for (const t of resp.missing_agreements) {
       // 单条失败不阻断 —— 后端可能已记录过(协议升级时已自动 sign 过的)；继续走下一条
       try {
-        await authApi.acceptAgreement(t, getAgreementVersion(t))
+        await authApi.acceptAgreement(t, getEffectiveAgreementVersion(t), 'login')
       } catch (e) {
         console.warn('[LoginModal] acceptAgreement failed', t, e)
       }

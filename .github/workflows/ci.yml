@@ -47,6 +47,11 @@ jobs:
       - name: 环境文件校验
         run: npm run check:env
 
+      # 协议版本锁 + 同源校验：版本号必须锁定 v1.0.0，
+      # 包内静态 HTML 必须与正文同源（CI 无后端仓，跨仓项自动跳过）。
+      - name: 协议版本锁校验
+        run: npm run check:agreements
+
       - name: lint
         run: npm run lint
 

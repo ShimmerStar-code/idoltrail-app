@@ -26,19 +26,22 @@
           <text class="section-body"
             >idoltrail聚焦于跟踪偶像全球活动信息，帮您掌握偶像全球动态，欢迎您的加入！
           </text>
-          <text class="section-extra">当前版本：v{{ APP_VERSION_NAME }}</text>
+          <view class="version-row">
+            <text class="section-extra">当前版本：v{{ APP_VERSION_NAME }}</text>
+            <text class="version-tag">{{ APP_VERSION_LABEL }}</text>
+          </view>
         </view>
 
         <!-- 链接 -->
         <view class="link-list">
           <view class="link-item" @tap="goAgreement('privacy_policy')">
             <text class="link-label">隐私政策</text>
-            <text class="link-desc">{{ PRIVACY_VERSION }}</text>
+            <text class="link-desc">{{ privacyVersion }}</text>
             <uni-icons type="right" size="8" color="#999" />
           </view>
           <view class="link-item" @tap="goAgreement('user_agreement')">
             <text class="link-label">用户协议</text>
-            <text class="link-desc">{{ AGREEMENT_VERSION }}</text>
+            <text class="link-desc">{{ agreementVersion }}</text>
             <uni-icons type="right" size="8" color="#999" />
           </view>
         </view>
@@ -66,10 +69,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import PageLayout from "@/components/PageLayout/index.vue";
 import { getStatusBarHeight } from "@/utils/system";
-import { APP_COMPANY, APP_VERSION_NAME, CONTACT_EMAIL, ICP_FILING_NO } from "@/constants/appInfo";
-import { PRIVACY_VERSION, AGREEMENT_VERSION } from "@/constants/agreements";
+import { APP_COMPANY, APP_VERSION_LABEL, APP_VERSION_NAME, CONTACT_EMAIL, ICP_FILING_NO } from "@/constants/appInfo";
+import { getEffectiveVersion } from "@/utils/agreementContent";
+
+// 协议版本取**当前生效版本**（服务端版本比包内新时以服务端为准），
+// 不用包内常量 —— 否则 App 已经拉到新政策，这里还显示旧版本号。
+const privacyVersion = ref(getEffectiveVersion("privacy_policy"));
+const agreementVersion = ref(getEffectiveVersion("user_agreement"));
 
 // 模板返回按钮：不能在模板里写 uni.navigateBack()，Vue 会把它解析成组件实例属性
 function goBack() { uni.navigateBack(); }
@@ -78,6 +87,11 @@ const sending = ref(false);
 
 onMounted(() => {
   statusBarHeight.value = getStatusBarHeight();
+});
+
+onShow(() => {
+  privacyVersion.value = getEffectiveVersion("privacy_policy");
+  agreementVersion.value = getEffectiveVersion("user_agreement");
 });
 
 function goAgreement(type: "privacy_policy" | "user_agreement") {
@@ -207,6 +221,24 @@ function sendFeedback() {
   margin-top: 12rpx;
   font-size: 22rpx;
   color: rgba(200, 200, 200, 1);
+}
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+.version-row .section-extra {
+  margin-top: 0;
+}
+.version-tag {
+  display: inline-block;
+  padding: 2rpx 12rpx;
+  border-radius: 100rpx;
+  font-size: 20rpx;
+  line-height: 1.6;
+  color: #b8860b;
+  background: rgba(255, 214, 102, 0.2);
 }
 .link-list {
   margin: 0 30rpx;

@@ -1,0 +1,32 @@
+{
+  "version": "v1.0.0",
+  "prompt": "template",
+  "title": "服务协议和隐私政策",
+  "message": "　　欢迎使用 idoltrail。请你务必审慎阅读、充分理解<a href=\"static/user-agreement.html\">《用户协议》</a>和<a href=\"static/privacy.html\">《隐私政策》</a>各条款，包括但不限于：为了更好的向你提供服务，我们需要收集你的手机号、设备标识等信息，用于账号登录与消息推送服务；位置信息仅在你主动点击定位并授权后获取，用于预选所在城市的演出活动。本应用使用的第三方 SDK 均在你点击同意之后才会初始化并读取上述信息。如果你同意，请点击下面按钮开始接受我们的服务。",
+  "buttonAccept": "同意并接受",
+  "buttonRefuse": "暂不同意",
+  "hrefLoader": "default",
+  "backToExit": "true",
+  "second": {
+    "title": "确认提示",
+    "message": "　　进入应用前，你需先同意<a href=\"static/user-agreement.html\">《用户协议》</a>和<a href=\"static/privacy.html\">《隐私政策》</a>，否则将退出应用。",
+    "buttonAccept": "同意并继续",
+    "buttonRefuse": "退出应用"
+  },
+  "disagreeMode": {
+    "support": false,
+    "loadNativePlugins": false,
+    "visitorEntry": false,
+    "showAlways": false
+  },
+  "styles": {
+    "backgroundColor": "#FFFFFF",
+    "borderRadius": "12px",
+    "title": {
+      "color": "#333333"
+    },
+    "buttonRefuse": {
+      "color": "#999999"
+    }
+  }
+}

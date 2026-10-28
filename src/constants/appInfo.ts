@@ -8,7 +8,7 @@
 // 备案号尚未取得时，UI 隐藏备案行，不要保留任何形式的假值。
 
 /** 运营主体全称，与营业执照 / 应用商店提交的主体一致 */
-export const APP_COMPANY = '六等星夜（北京）科技有限公司'
+export const APP_COMPANY = '六等星夜（北京）科技有限责任公司'
 
 /** 对外联系邮箱，隐私政策与用户协议的投诉举报入口 */
 export const CONTACT_EMAIL = 'idoltrail@shimmer-star.com'
@@ -23,5 +23,11 @@ export const APP_REGION = '北京市'
 export const ICP_FILING_NO = '京ICP备2024102003号-2A'
 
 /** App 版本名，与 manifest.json versionName 保持一致 */
-export const APP_VERSION_NAME = '1.0.0'
+export const APP_VERSION_NAME = '0.1.1'
+
+/**
+ * 版本渠道说明。0.1.1 仍是内部测试版，未上架应用商店，
+ * 「关于我们」页需要如实标注，别让用户以为是正式发行版。
+ */
+export const APP_VERSION_LABEL = '内部测试版'
 

@@ -15,12 +15,20 @@
 // requestLocationPermission 的注释。
 
 import { PRIVACY_VERSION } from '@/constants/agreements'
+import { getEffectivePrivacyVersion } from '@/utils/agreementContent'
 
 // 版本号统一由 constants/agreements.ts 维护（协议正文与版本号必须同处一个文件），
 // 此处只做转出，保证 `import { PRIVACY_VERSION } from '@/utils/privacy'` 的老调用点不断。
+//
+// ⚠️ 注意区分两个版本：
+//   · PRIVACY_VERSION —— **包内**兜底版本（编译期常量，见 constants/agreements.ts）；
+//   · getEffectivePrivacyVersion() —— **当前生效**版本（服务端版本比包内新时以服务端为准）。
+// 同意状态一律跟「当前生效版本」比对，详见下方 hasPrivacyConsent。
 export { PRIVACY_VERSION }
 
 const KEY_PRIVACY_VERSION = 'fans:privacy:version'
+/** 本地同意时间（毫秒时间戳），用于在协议页展示"您已同意的时间" */
+const KEY_PRIVACY_AGREED_AT = 'fans:privacy:agreed_at'
 
 /**
  * 申请定位权限的兜底超时（ms）。
@@ -37,9 +45,97 @@ const KEY_PRIVACY_VERSION = 'fans:privacy:version'
  */
 const PERMISSION_TIMEOUT = 10000
 
-/** 用户是否已同意当前版本的隐私政策 */
+/**
+ * 用户是否已同意**当前生效版本**的隐私政策。
+ *
+ * ⚠️ 这里比的不是包内常量 PRIVACY_VERSION，而是 getEffectivePrivacyVersion()：
+ *    隐私政策正文的权威来源是服务端，运营改了政策后 App 启动会拉到新版本，
+ *    此时用户对旧版本的同意不再成立，必须重新征求 —— 跟常量比就永远发现不了更新。
+ */
 export function hasPrivacyConsent(): boolean {
-  return uni.getStorageSync(KEY_PRIVACY_VERSION) === PRIVACY_VERSION
+  return uni.getStorageSync(KEY_PRIVACY_VERSION) === getEffectivePrivacyVersion()
+}
+
+/**
+ * 读取本地同意状态（供 store 初始化时建响应式镜像用）。
+ *
+ * 与 hasPrivacyConsent() 等价，只是名字不同，避免 store 那边读起来像"重新同意一次"。
+ */
+export function readPrivacyConsent(): boolean {
+  return hasPrivacyConsent()
+}
+
+/**
+ * 读取 **DCloud 原生运行时** 的隐私同意状态。
+ *
+ * 为什么需要这一层（应用市场检测不通过的关键）：
+ * uni-app 的 JS 代码启动得比原生晚，而第三方 SDK（uni-push / 厂商通道 / WebView 内核）
+ * 在原生插件加载时就会读取 OAID、Android ID、安装列表。于是会出现这个顺序：
+ *
+ *     原生插件加载 → SDK 采集设备标识 → JS 启动 → 我们自绘的隐私弹窗才出现
+ *
+ * 检测引擎看到的是"隐私政策弹窗已经弹出，但 SDK 在弹窗之前就已经采集了"，
+ * 于是判定为「未经用户同意即收集个人信息」。
+ *
+ * DCloud 官方给的解法是 `src/androidPrivacy.json` 的 `prompt: "template"`：
+ * **原生模板弹窗在 splash 界面就挡住应用，用户点「同意并接受」之后才进入 App、才加载原生插件。**
+ * 官方原话：「目前设置 custom 模式策略，并不能完全避免在弹出隐私提示框之前读取设备信息
+ * （如 mac 地址、应用列表等）……碰到此问题的开发者请先使用 template 模式解决」。
+ *
+ * 于是 JS 启动时原生那边**已经**是"已同意"状态：
+ *   · 原生已同意 → 同步本地状态，**不要再弹自绘弹窗**（否则自绘弹窗会晚于 SDK 初始化出现，
+ *     反而让检测引擎误判"同意在前、采集在后"）；
+ *   · 原生未同意（模板弹窗没生效的降级路径）→ 走自绘弹窗，点同意时再回写原生状态。
+ *
+ * 官方规范：plus.runtime.isAgreePrivacy / plus.runtime.agreePrivacy
+ * @see https://uniapp.dcloud.net.cn/tutorial/app-privacy-android.html
+ */
+export function isNativePrivacyAgreed(): boolean {
+  // #ifdef APP-PLUS
+  try {
+    const rt = plus.runtime as any
+    if (typeof rt?.isAgreePrivacy === 'function') return rt.isAgreePrivacy() === true
+  } catch (e) {
+    console.warn('[privacy] 读取原生隐私同意状态失败', e)
+  }
+  // #endif
+  return false
+}
+
+/**
+ * 把"用户已同意"回写到 DCloud 原生运行时。
+ *
+ * 自绘隐私弹窗点「同意」时调用，保证原生层与 JS 层的同意状态一致：
+ * 否则原生层会一直认为"未同意"，下次冷启动可能又弹出原生模板弹窗，
+ * 造成"同一个 App 弹两次隐私弹窗"（商店审核会判为体验缺陷）。
+ */
+export function syncNativePrivacyAgree(): void {
+  // #ifdef APP-PLUS
+  try {
+    const rt = plus.runtime as any
+    rt?.agreePrivacy?.()
+  } catch (e) {
+    console.warn('[privacy] 同步原生隐私同意状态失败', e)
+  }
+  // #endif
+}
+
+/**
+ * 把"用户已拒绝"回写到 DCloud 原生运行时。
+ *
+ * 配合 androidPrivacy.json 的 `disagreeMode.loadNativePlugins: false`：
+ * 原生层会因此**不加载任何原生插件**，三方 SDK 自然也不会初始化。
+ * 这是自绘弹窗（原生模板弹窗未生效的降级路径）能拿到的最强兜底。
+ */
+export function syncNativePrivacyDisagree(): void {
+  // #ifdef APP-PLUS
+  try {
+    const rt = plus.runtime as any
+    rt?.disagreePrivacy?.()
+  } catch (e) {
+    console.warn('[privacy] 同步原生隐私拒绝状态失败', e)
+  }
+  // #endif
 }
 
 /** 已同意的协议版本（未同意过返回空串） */
@@ -47,13 +143,29 @@ export function getPrivacyVersion(): string {
   return uni.getStorageSync(KEY_PRIVACY_VERSION) || ''
 }
 
+/** 本地同意时间（毫秒时间戳；未同意过返回 0） */
+export function getPrivacyConsentAt(): number {
+  const v = Number(uni.getStorageSync(KEY_PRIVACY_AGREED_AT))
+  return Number.isFinite(v) && v > 0 ? v : 0
+}
+
 export function savePrivacyConsent(): void {
-  uni.setStorageSync(KEY_PRIVACY_VERSION, PRIVACY_VERSION)
+  // 记录的是**当前生效版本**：用户在弹窗点「同意」时生效版本可能刚从服务端更新过，
+  // 这里存旧版本会导致下次启动又判定为「未同意」，反复弹窗。
+  const effective = getEffectivePrivacyVersion()
+  const prev = uni.getStorageSync(KEY_PRIVACY_VERSION) || ''
+  uni.setStorageSync(KEY_PRIVACY_VERSION, effective)
+  // 同意时间：换了版本重新同意 → 时间要跟着刷新（否则协议页会显示旧版本的同意时间，
+  // 与当前版本对不上）；同一版本重复保存则不刷新，避免时间被无意义地往后推。
+  if (prev !== effective || !getPrivacyConsentAt()) {
+    uni.setStorageSync(KEY_PRIVACY_AGREED_AT, Date.now())
+  }
 }
 
 /** 撤回同意（用户从系统设置里撤回，或「退出并清除数据」时调用） */
 export function clearPrivacyConsent(): void {
   uni.removeStorageSync(KEY_PRIVACY_VERSION)
+  uni.removeStorageSync(KEY_PRIVACY_AGREED_AT)
 }
 
 /**
