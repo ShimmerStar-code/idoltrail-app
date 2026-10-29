@@ -38,6 +38,52 @@ function pluginReady(): boolean {
   // #endif
 }
 
+/**
+ * 推送不可用的原因；返回 null 表示一切正常。
+ *
+ * 为什么需要它：`initPush()` / `syncPushToken()` 以前在不可用时**一行日志都不打**
+ * 就直接 return。真机调试时表现为「App 跑得好好的，后端一条 push-token 都没有」，
+ * 完全看不出是包没集成推送模块、还是开关关了、还是真出错了。
+ *
+ * ⚠️ 别据「基座/包不一样」直接推断这里会命中：
+ * 2026-10-29 真机实测，HBuilderX **标准运行基座**里 `uni.getPushClientId` 与
+ * `uni.onPushMessage` **都在**，2.0 的 cid 能正常取到并上报成功。
+ * 基座缺的是**厂商离线通道**（小米/华为），那属于 offline 的问题，见 docs/unipush-offline.md。
+ */
+function pushUnavailableReason(): string | null {
+  if (!pushEnabled()) {
+    return '总开关 VITE_PUSH_ENABLED 已关闭'
+  }
+  if (!pluginReady()) {
+    return '当前安装包未集成 uni-push 2.0（uni.getPushClientId 不存在）：' +
+      '需在 manifest 勾选 Push 模块，且用含该模块的自定义基座或云打包安装'
+  }
+  return null
+}
+
+/**
+ * 诊断日志去重：同一个原因只记一次。
+ *
+ * initPush / syncPushToken 会在 onLaunch、onShow、登录成功三个时机反复调用，
+ * 不去重会刷屏；而不打日志又会退化成「完全静默失效」——两者之间只差这一层。
+ */
+const pushDiagLogged = new Set<string>()
+
+function pushDiagOnce(key: string, message: string, ...args: unknown[]) {
+  if (pushDiagLogged.has(key)) return
+  pushDiagLogged.add(key)
+  console.warn(`[push] ${message}`, ...args)
+}
+
+/** 自检用：把当前推送能力状态导出给调试面板/日志 */
+export function pushCapability(): { enabled: boolean; pluginReady: boolean; reason: string | null } {
+  return {
+    enabled: pushEnabled(),
+    pluginReady: pluginReady(),
+    reason: pushUnavailableReason(),
+  }
+}
+
 /** 冷启动时通知栏点进来时，cid 还没拿到前收到的点击事件，先缓存起来 */
 let pendingClick: PushPayload | null = null
 
@@ -228,7 +274,14 @@ let inited = false
  * 幂等：重复调用直接返回。
  */
 export function initPush() {
-  if (!pushEnabled() || !pluginReady() || inited) return
+  // 不可用时**必须**留下原因：以前这里直接 return，App 照常运行但推送整条链路
+  // （取 cid → 上报 → 收消息）全部失效，现场无法区分「基座不支持」和「后端故障」。
+  const reason = pushUnavailableReason()
+  if (reason) {
+    pushDiagOnce('init', `[push] 推送未初始化：${reason}`)
+    return
+  }
+  if (inited) return
   inited = true
 
   // #ifdef APP-PLUS
@@ -245,7 +298,11 @@ export function initPush() {
   const uniPush = uni as unknown as {
     onPushMessage?: (cb: (res: any) => void) => void
   }
-  try {
+  if (typeof uniPush.onPushMessage !== 'function') {
+    // 有 cid 但没有 2.0 的事件 API：说明是 uni-push 1.0 形态的包，
+    // 前台消息只能靠 plus.push 兜底，行为与 2.0 不一致，必须留痕。
+    pushDiagOnce('noOnPushMessage', '[push] uni.onPushMessage 不存在：当前包不是 uni-push 2.0，仅靠 plus.push 兜底')
+  }  try {
     uniPush.onPushMessage?.((res: any) => {
       const raw = normalizeOnPushMessage(res)
       console.log('[push] onPushMessage', res?.type)
@@ -280,13 +337,27 @@ export function flushPendingPushClick() {
 /** 取本机 cid（uni-push 客户端 ID）。插件缺失时返回空串。 */
 export function getPushClientId(): Promise<string> {
   return new Promise((resolve) => {
-    if (!pushEnabled() || !pluginReady()) {
+    const reason = pushUnavailableReason()
+    if (reason) {
+      pushDiagOnce('cid', `[push] 取不到 cid：${reason}`)
       resolve('')
       return
     }
     try {
       ;(uni as any).getPushClientId({
-        success: (res: any) => resolve(res?.cid || ''),
+        success: (res: any) => {
+          // 只打字段名和 type，不打 cid 本身（cid 是设备凭据，会进 logcat）
+          console.log('[push] getPushClientId 成功', {
+            keys: Object.keys(res || {}),
+            type: (res as any)?.type,
+          })
+          if (!res?.cid) {
+            pushDiagOnce('cidEmpty', '[push] getPushClientId 返回空 cid：SDK 可能未完成注册')
+            resolve('')
+            return
+          }
+          resolve(res.cid)
+        },
         fail: (e: any) => {
           console.warn('[push] getPushClientId 失败', e)
           resolve('')
@@ -310,10 +381,17 @@ export async function syncPushToken(): Promise<boolean> {
   // -> stores/user），Vite 构建会告警且 chunk 求值顺序不可控。
   const { useUserStore } = await import('@/stores/user')
   const userStore = useUserStore()
-  if (!userStore.isLoggedIn) return false
+  if (!userStore.isLoggedIn) {
+    // 未登录是正常状态（游客浏览），但要留痕：登录后会自动补报一次。
+    pushDiagOnce('anon', '[push] 跳过 cid 上报：当前未登录')
+    return false
+  }
 
   const cid = await getPushClientId()
-  if (!cid) return false
+  if (!cid) {
+    pushDiagOnce('noCid', '[push] cid 上报跳过：未取到 cid')
+    return false
+  }
   try {
     await pushApi.reportPushToken(cid, getDeviceId(), getPushPlatform())
     console.log('[push] cid 上报成功', { deviceId: getDeviceId(), platform: getPushPlatform() })

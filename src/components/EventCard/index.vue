@@ -74,9 +74,11 @@
         <view
           v-if="badgeLabel"
           class="status-badge"
-          :style="{ background: badgeColor }"
+          :style="{ background: badgeStyle.bg }"
         >
-          <text class="status-badge-text">{{ badgeLabel }}</text>
+          <text class="status-badge-text" :style="{ color: badgeStyle.fg }">{{
+            badgeLabel
+          }}</text>
         </view>
         <!-- 订阅按钮：PUBLISHED / POSTPONED 可订阅；已订阅的过期活动也保留书签以便退订移除 -->
         <view
@@ -127,7 +129,7 @@ import { formatCity } from "@/constants/cities";
 import {
   EVENT_TYPE_LABEL,
   EVENT_STATUS_OPTIONS,
-  STATUS_BADGE_COLOR,
+  STATUS_BADGE_STYLE,
   effectiveEventStatus,
 } from "@/constants/eventMeta";
 import { resolveArtistTheme } from "@/constants/artistTheme";
@@ -249,8 +251,12 @@ const badgeLabel = computed(() => {
   return found?.label || effectiveStatus.value;
 });
 
-const badgeColor = computed(
-  () => STATUS_BADGE_COLOR[effectiveStatus.value] || "rgba(150,150,150,1)",
+const badgeStyle = computed(
+  () =>
+    STATUS_BADGE_STYLE[effectiveStatus.value] || {
+      bg: "rgba(150,150,150,1)",
+      fg: "#fff",
+    },
 );
 
 // ── 订阅 ──

@@ -49,40 +49,6 @@ export interface DonationOrderResponse {
   expire_at: string
 }
 
-// ── 虚拟支付（XPay）──
-
-/** POST /donations/xpay/sign 请求 */
-export interface XPaySignRequest {
-  /** 金额（单位：分），必须是固定档位：500/1000/2000/5000/10000/20000 */
-  amount: number
-  /** uni.getSystemInfoSync().platform，"android" | "ios" */
-  platform: string
-  /** 0=现网(真机) 1=沙箱(DevTools/mac) */
-  env: number
-}
-
-/** wx.requestVirtualPayment 所需参数（由后端签名后返回） */
-export interface XPayParams {
-  offerId: string
-  productId: string
-  buyQuantity: number
-  currencyType: string
-  platform: string
-  env: number        // 0=正式 1=沙箱
-  outTradeNo: string
-  mode: string       // "short_series_goods" = 道具直购
-  signData: string   // 核心参数 JSON
-  signature: string  // hex(HMAC-SHA256(sessionKey, signData))
-  paySig: string     // hex(HMAC-SHA256(appKey, "requestVirtualPayment"+signData))
-}
-
-/** POST /donations/xpay/sign 响应 */
-export interface XPaySignResponse {
-  out_trade_no: string
-  expire_at: string
-  params: XPayParams
-}
-
 // ── iOS 内购（StoreKit IAP）──
 
 /**

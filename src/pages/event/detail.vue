@@ -71,9 +71,12 @@
               <view
                 v-if="statusPillText"
                 class="event-status-pill"
-                :style="{ background: statusPillColor }"
+                :style="{ background: statusPillStyle.bg }"
               >
-                <text class="event-status-pill-text">{{ statusPillText }}</text>
+                <text
+                  class="event-status-pill-text"
+                  :style="{ color: statusPillStyle.fg }"
+                >{{ statusPillText }}</text>
               </view>
               <text class="event-title">{{ d.title }}</text>
             </view>
@@ -399,7 +402,12 @@
         <view class="section">
           <view class="notice-title-wrap">
             <view class="notice-title-bar"></view>
-            <text class="section-title notice-section-title">观演须知</text>
+            <text class="section-title notice-section-title">
+              {{ noticeIsGeneric ? "观演须知（通用提示）" : "观演须知" }}
+            </text>
+          </view>
+          <view v-if="noticeIsGeneric" class="notice-source-tip">
+            本场未提供专属须知，以下为通用入场提示，请以现场公告为准。
           </view>
           <view class="notice-box">
             <view v-for="(item, i) in noticeItems" :key="i" class="notice-item">
@@ -439,8 +447,9 @@ import type { EventSession } from "@/types/event";
 import {
   EVENT_TYPE_LABEL,
   EVENT_STATUS_OPTIONS,
-  STATUS_BADGE_COLOR,
+  STATUS_BADGE_STYLE,
   effectiveEventStatus,
+  GENERIC_AUDIENCE_NOTICE,
 } from "@/constants/eventMeta";
 import { onLoad } from "@dcloudio/uni-app";
 import { computed, onMounted, ref, watch } from "vue";
@@ -707,8 +716,12 @@ const statusPillText = computed(() => {
     EVENT_STATUS_OPTIONS.find((o) => o.code === effStatus.value)?.label || effStatus.value
   );
 });
-const statusPillColor = computed(
-  () => STATUS_BADGE_COLOR[effStatus.value] || "rgba(150,150,150,1)"
+const statusPillStyle = computed(
+  () =>
+    STATUS_BADGE_STYLE[effStatus.value] || {
+      bg: "rgba(150,150,150,1)",
+      fg: "#fff",
+    }
 );
 
 /**
@@ -773,6 +786,17 @@ const noticeItems = computed(() => {
       };
     });
 });
+
+/**
+ * 当前须知是否为「通用提示」而非主办方公告。
+ *
+ * store 在后台未配置 notice 时会填入 GENERIC_AUDIENCE_NOTICE（见 stores/event.ts）。
+ * 内容本身是全行业通用规则，但用主办方的口吻展示会让用户误以为是官方公告，
+ * 因此这里要显式标注来源。
+ */
+const noticeIsGeneric = computed(
+  () => !!d.value?.notice && d.value.notice === GENERIC_AUDIENCE_NOTICE,
+);
 </script>
 
 <style scoped>
@@ -1442,6 +1466,15 @@ const noticeItems = computed(() => {
   border-radius: 16rpx;
   padding: 24rpx 28rpx;
   box-sizing: border-box;
+}
+.notice-source-tip {
+  margin-top: 12rpx;
+  padding: 16rpx 24rpx;
+  border-radius: 12rpx;
+  background: #f6f7f8;
+  color: #8a8f99;
+  font-size: 24rpx;
+  line-height: 1.6;
 }
 .notice-item {
   margin-bottom: 24rpx;

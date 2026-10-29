@@ -136,7 +136,8 @@ App 的生产包指向 `https://api.idoltrail.com/api/v1`（v2 隔离栈，`/api
 2. `src/pages/admin/` 仍打包在 App 内（`pages.json` 无法按 mode 条件编译），
    已用构建期开关封死入口，但要彻底消除需后端对 `/admin/*` 加来源校验，并把后台迁到独立 Web 控制台。
 3. 隐私政策正文已与实际采集数据对齐，上架前仍需人工复核 `privacyDescription` 与实际 SDK 采集行为是否一致。
-4. Android 原生支付仍是 stub，`VITE_DONATE_NATIVE_READY` 保持 `false`。
+4. Android 原生支付的客户端已实现（`src/utils/nativePay.ts`），缺的是后端
+   `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，`VITE_DONATE_NATIVE_READY` 保持 `false`。
 5. 一键登录依赖 3 件外部条件，缺一则入口静默消失：DCloud 后台开通服务、云函数已 URL 化、后端已填 `UNIVERIFY_*`。
 
 ---

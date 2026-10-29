@@ -12,6 +12,7 @@ import {
   syncPushToken,
   flushPendingPushClick,
   checkNotifyPermissionHint,
+  pushCapability,
 } from '@/composables/usePush'
 import { useNotificationStore } from '@/stores/notification'
 
@@ -51,6 +52,10 @@ async function afterPrivacyConsent() {
   // 推送（uni-push 2.0）。未安装插件 / 开关关闭时为 no-op。
   // 通知触达的唯一通道：前台由 pushMessageReceived 回调刷新，
   // 后台由系统通知栏承接，客户端收到后回查 /notifications。
+  //
+  // 先打一行能力自检：真机调试时这一行就能判断「这台设备/这个包能不能收推送」，
+  // 不用等到发现「后端一条 push-token 都没有」再回头猜。
+  console.log('[App] push capability', pushCapability())
   initPush()
   checkNotifyPermissionHint()
 

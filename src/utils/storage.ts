@@ -4,6 +4,24 @@
 
 const KEY_ACCESS = 'fans:auth:access'
 const KEY_REFRESH = 'fans:auth:refresh'
+/**
+ * token 的本地到期时间戳（ms，Date.now() 基准）。
+ *
+ * 服务端在登录 / refresh 响应里下发 access_expires_in / refresh_expires_in，
+ * 落盘后客户端才能做「主动滑动续期」：在 token 真的过期前先换新，
+ * 既避免第一个请求吃 401，也能把 refresh 的有效期不断往后推。
+ */
+const KEY_ACCESS_EXP = 'fans:auth:access_exp'
+const KEY_REFRESH_EXP = 'fans:auth:refresh_exp'
+/**
+ * 上次拿到新 refresh token 的时间戳（ms）。
+ *
+ * 滑动续期的判定基准：距上次续期超过阈值（24 小时）就主动换一次，
+ * 把 refresh 的有效期重置为「当天 + 60 天」。
+ * 只看「剩余有效期」不够 —— 那种判定下用户明明还在正常使用 App，
+ * 却可能因为没触达阈值而错过续期。
+ */
+const KEY_REFRESH_AT = 'fans:auth:refresh_at'
 
 export function getAccessToken(): string {
   return uni.getStorageSync(KEY_ACCESS) || ''
@@ -11,13 +29,53 @@ export function getAccessToken(): string {
 export function getRefreshToken(): string {
   return uni.getStorageSync(KEY_REFRESH) || ''
 }
-export function setTokens(access: string, refresh: string) {
+
+/** access token 到期时间戳（ms）。0 = 未知（老版本客户端没写过这个值） */
+export function getAccessExpiresAt(): number {
+  return Number(uni.getStorageSync(KEY_ACCESS_EXP)) || 0
+}
+
+/** refresh token 到期时间戳（ms）。0 = 未知（老版本客户端没写过这个值） */
+export function getRefreshExpiresAt(): number {
+  return Number(uni.getStorageSync(KEY_REFRESH_EXP)) || 0
+}
+
+/** 上次续期（登录或 refresh 成功）的时间戳（ms）。0 = 从未续期过 */
+export function getRefreshedAt(): number {
+  return Number(uni.getStorageSync(KEY_REFRESH_AT)) || 0
+}
+
+/**
+ * 写入 token。
+ *
+ * accessExpiresIn / refreshExpiresIn 为服务端下发的剩余秒数（可选）：
+ * 传了就刷新本地到期时间，不传则沿用旧值 —— 避免「只拿到 token 字符串
+ * 却把已知的到期时间抹掉」。
+ */
+export function setTokens(
+  access: string,
+  refresh: string,
+  accessExpiresIn?: number,
+  refreshExpiresIn?: number,
+) {
   uni.setStorageSync(KEY_ACCESS, access)
   uni.setStorageSync(KEY_REFRESH, refresh)
+  const now = Date.now()
+  if (typeof accessExpiresIn === 'number' && accessExpiresIn > 0) {
+    uni.setStorageSync(KEY_ACCESS_EXP, now + accessExpiresIn * 1000)
+  }
+  if (typeof refreshExpiresIn === 'number' && refreshExpiresIn > 0) {
+    uni.setStorageSync(KEY_REFRESH_EXP, now + refreshExpiresIn * 1000)
+    // 本次登录 / 续期的时间点，作为下一次滑动续期的基准
+    uni.setStorageSync(KEY_REFRESH_AT, now)
+  }
 }
 export function clearTokens() {
   uni.removeStorageSync(KEY_ACCESS)
   uni.removeStorageSync(KEY_REFRESH)
+  uni.removeStorageSync(KEY_ACCESS_EXP)
+  uni.removeStorageSync(KEY_REFRESH_EXP)
+  uni.removeStorageSync(KEY_REFRESH_AT)
 }
 
 const KEY_USER = 'fans:auth:user'

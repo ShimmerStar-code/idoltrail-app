@@ -8,8 +8,6 @@ import type {
   DonationOrderRequest,
   DonationOrderResponse,
   DonationOrderStatus,
-  XPaySignRequest,
-  XPaySignResponse,
 } from '@/types/donate'
 
 export const donateApi = {
@@ -24,14 +22,6 @@ export const donateApi = {
     return request<DonationOrderResponse>('/donations', {
       method: 'POST',
       data: { amount, channel } as DonationOrderRequest,
-    })
-  },
-
-  /** 虚拟支付：创建订单 + 获取签名参数，用于 wx.requestVirtualPayment */
-  xpaySign(amount: number, platform: string, env: number = 0): Promise<XPaySignResponse> {
-    return request<XPaySignResponse>('/donations/xpay/sign', {
-      method: 'POST',
-      data: { amount, platform, env } as XPaySignRequest,
     })
   },
 

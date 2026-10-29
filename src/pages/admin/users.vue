@@ -49,6 +49,24 @@ const keyword = ref('')
 const statusFilter = ref('')
 const users = ref<any[]>([])
 
+/**
+ * 状态筛选下拉。
+ *
+ * ⚠️ 已知的接口契约错配（待修，未在本轮改动行为）：
+ * 1. 这里请求的是 `/admin/users`，后端该路由是**后台管理员账号**（admin_member）的
+ *    CRUD 列表（见后端 cmd/server/main.go 的 adminUsers 组），返回字段里没有
+ *    nickname / avatar_url；C 端用户的只读列表在 `/admin/c-users`。
+ * 2. 后端 `/admin/users` 系的 `status` 是 **int**（C 端口径 1=active 2=disabled
+ *    3=locked 4=pending_delete，0=不过滤），这里传的是字符串，
+ *    Go 侧 `strconv.Atoi` 解析失败会退回 0 → 该筛选当前不生效。
+ * 3. 「待注销」已几乎无数据：注销链路已改成立即 HardDelete
+ *    （后端 service/user.go 的 Cancel），账号行 status 直接置 disabled；
+ *    pending_delete 只剩旧版本遗留的 7 天后悔期数据。
+ *
+ * 生产构建里本页面被 vite.config.ts 的 checkAdminGate() 强制关闭（入口不出现），
+ * 因此不阻塞 C 端发版；改用 `/admin/c-users` 重写时注意它**只读**，
+ * 封禁/解冻没有对应接口。
+ */
 const statusOptions = ['全部', '正常', '封禁', '锁定', '待注销']
 const statusValues = ['', 'active', 'disabled', 'locked', 'pending_delete']
 const currentStatusLabel = ref('全部')

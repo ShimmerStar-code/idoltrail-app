@@ -15,7 +15,7 @@ export const geoApi = {
   locateCityByIp: () => request<IpCityResult>('/geocode/ip', { method: 'GET', silent: true }),
 
   /**
-   * 坐标反查城市（WGS84 → 中文城市名）。
+   * 坐标反查城市（经纬度 → 中文城市名）。
    *
    * 必须经服务端代理：App 直连天地图等于把 key 暴露在客户端包内，
    * 任何人都能扒出来刷配额。服务端已做 7 天 Redis 缓存，成本可忽略。
@@ -23,9 +23,7 @@ export const geoApi = {
    * 坐标保留 6 位小数（约 0.1m 精度）后再上报：原始浮点数的 15~17 位有效数字
    * 会让 URL 变长，且没必要——城市级判定用不到更高精度。
    *
-   * ⚠️ 真正的缓存分桶在**服务端**：geocodeCacheKey 会把坐标截断到 2 位小数
-   *    （约 1km 网格）再当 Redis key 用。也就是说服务端留存的是「约 1km 精度的
-   *    网格坐标」而非本次上报的原始坐标，这一点已如实写入隐私政策 v1.4 第 6 项。
+   * 缓存分桶在**服务端**完成（约 1km 网格聚合，7 天 TTL），客户端不做缓存。
    */
   reverseGeocode: (lat: number, lon: number) =>
     request<ReverseCityResult>('/geocode/reverse', {

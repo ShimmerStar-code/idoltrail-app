@@ -26,9 +26,12 @@
 import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/app'
+import { useUserStore } from '@/stores/user'
 
 const appStore = useAppStore()
 const { showDisclaimer } = storeToRefs(appStore)
+const userStore = useUserStore()
+const { globalOverlaySuspended } = storeToRefs(userStore)
 const popupRef = ref<any>(null)
 
 /**
@@ -51,6 +54,9 @@ function tryOpenPopup(retries = 5) {
 // 此时本组件还没 mount,watch 不会回放初值,弹窗永远不显示。
 watch(showDisclaimer, (show) => {
   if (show) {
+    // 协议详情页期间抑制：PageLayout 在每个页面都挂了本组件，
+    // 跳协议页时新页面上的实例会再弹一次免责声明（两层 mask 叠在一起）。
+    if (globalOverlaySuspended.value) return
     tryOpenPopup()
   } else {
     popupRef.value?.close?.()

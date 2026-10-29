@@ -89,7 +89,7 @@
         <!-- 赞助 Banner -->
         <!-- 必须受 DONATE_ENABLED 控制。此前这个 banner 是无条件渲染的，
              DONATE_ENABLED 在 src/utils/env.ts 里定义了却全仓无人引用，
-             于是即使支付通道全是 stub（invokeNativePay 未实现），
+             于是即便支付通道没开通（后端对账接口未落地），
              banner 依然恒显示 → 用户点进去必然失败。
              开关关闭时整块隐藏，而不是展示一个点不动的入口。 -->
         <view
@@ -220,6 +220,24 @@ const menuItems = [
     iconColor: "#fff",
     action: () => nav("/pages/profile/settings"),
   },
+  // 协议入口放在个人中心一级菜单：合规要求用户能随时找到并阅读现行协议，
+  // 不能只藏在「通用 - 关于我们」里。
+  {
+    label: "隐私政策",
+    icon: "/static/icons/general.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => nav("/pages/agreement/detail?type=privacy_policy"),
+  },
+  {
+    label: "用户协议",
+    icon: "/static/icons/general.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => nav("/pages/agreement/detail?type=user_agreement"),
+  },
+  // 「协议同意记录」不再单独占个人中心一级入口：同意时间与版本已经直接展示在
+  // 「隐私政策」「用户协议」页尾（src/pages/agreement/detail.vue），单开一页属于重复占用空间。
 ];
 
 function nav(url: string) {

@@ -1,10 +1,10 @@
 # idoltrail-app
 
-偶像轨迹（idoltrail）Android / iOS 独立 App 前端。基于 uni-app（Vue 3 + TypeScript + Vite）构建，与微信小程序版 `idoltrail-wechat` 并存、互不影响，两者共用 `idoltrail-server-main` 后端。
+idoltrail Android / iOS 独立 App 前端。基于 uni-app（Vue 3 + TypeScript + Vite）构建，与微信小程序版 `idoltrail-wechat` 并存、互不影响，两者共用 `idoltrail-server-main` 后端。
 
 ## 环境要求
 
-- HBuilderX 5.x（编译器版本须与 `package.json` 中 `@dcloudio/*` 的 `3.0.0-4080420251103001` 一致）
+- HBuilderX 5.26+（编译器版本须与 `package.json` 中 `@dcloudio/*` 的 `3.0.0-5020620260917001` 一致）
 - Node.js 18+
 - DCloud 开发者账号（取 AppID 与 uni-push 配置；不配也能编译运行，只是推送走 no-op）
 
@@ -140,7 +140,7 @@ src/
 | 变量 | 说明 |
 |------|------|
 | `VITE_API_BASE_URL` | 后端根地址，**必填**，含 `/api/v1`。生产构建缺失或指向 localhost 时 `vite.config.ts` 会直接 fail build |
-| `VITE_PUSH_ENABLED` | uni-push 2.0 开关，默认 `false`；关闭或插件缺失时为 no-op |
+| `VITE_PUSH_ENABLED` | uni-push 2.0 开关，`.env.prod` 当前为 `true`；关闭或插件缺失时为 no-op |
 | `VITE_DONATE_ENABLED` | 捐赠入口总开关 |
 | `VITE_DONATE_IOS_ENABLED` | iOS 需走 StoreKit IAP，默认 `false` |
 | `VITE_DONATE_NATIVE_READY` | Android 原生支付是否就绪，默认 `false` |
@@ -150,11 +150,11 @@ src/
 
 ## 上线前必须补齐
 
-### 1. DCloud AppID（阻塞项）
+### 1. DCloud AppID（已完成）
 
-`src/manifest.json` 中 `"appid": "__UNI__REPLACE_WITH_DCLOUD_APPID__"` 需替换为真实 `__UNI__XXXXXXX`。未替换可编译，但**无法真机运行与打包**。
+`src/manifest.json` 的 `"appid"` 已填真实值 `__UNI__F1F9279`（与 DCloud 后台核对过），**不要再改回占位符**。
 
-### 2. 推送（默认关闭）
+### 2. 推送（`.env.prod` 已开启）
 
 ```bash
 VITE_PUSH_ENABLED=true
@@ -162,7 +162,7 @@ VITE_PUSH_ENABLED=true
 
 补齐步骤：HBuilderX 安装 `uni_modules/uni-push`（uni-push 2.0）→ DCloud 后台开通 UniPush / 厂商通道 → `manifest.json` 的 `app-plus.distribute.sdkConfigs` 填渠道 AppID/Secret → Android 厂商通道按需在 `app-plus.modules` 启用。
 
-`src/composables/usePush.ts` 全部走可选调用，插件缺失或开关关闭时是 no-op，**不补齐不影响编译与运行**。
+`src/composables/usePush.ts` 全部走可选调用，插件缺失或开关关闭时是 no-op，**不补齐不影响编译与运行**。真机收推送必须用含 uni-push 模块的自定义基座或云打包。
 
 ### 3. 第三方分享（可选）
 
@@ -178,13 +178,17 @@ VITE_PUSH_ENABLED=true
 | `VITE_DONATE_IOS_ENABLED` | iOS 是否展示支付按钮（App Store 要求数字内容走 IAP） |
 | `VITE_DONATE_NATIVE_READY` | Android 原生支付（微信 App Pay / 支付宝）是否可用 |
 
-**Android 侧目前保持 `VITE_DONATE_NATIVE_READY=false`**：`invokeNativePay()` 仍是 stub，而后端 `/donations/wx-app`、`/donations/alipay` 尚未落地对账接口，此时置 true 只会让用户点了必然失败。后端就绪后再开。
+**Android 侧目前保持 `VITE_DONATE_NATIVE_READY=false`**：客户端支付已实现（`src/utils/nativePay.ts` 的 `requestWxAppPay` / `requestAlipay`，走 `uni.requestPayment`），缺的是后端 `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，此时置 true 只会让用户点了必然失败。后端就绪后再开。
 
 ### 5. 隐私合规
 
-`src/constants/agreements.ts` 已与 App 实际采集数据对齐（不再声明微信 openid / unionid），隐私政策正文由此常量渲染。
+`src/constants/agreements.ts` 已与 App 实际采集数据对齐（不再声明微信 openid / unionid），并作为**离线兜底**正文打包。
 
-`src/utils/privacy.ts` 维护「已同意 + 协议版本」状态：未同意前 `ensureSystemPermission()` 会拦截定位、通知等授权调用；协议变更时递增 `PRIVACY_VERSION`，App 启动会重新征求同意。权限用途文案在 `manifest.json` 的 `privacyDescription` / `android.permissions`。上架前仍需人工复核一遍与实际 SDK 采集行为是否一致。
+运行时权威来源是服务端：`GET /api/v1/public/agreements` 返回正文 + 版本号，App 启动时（`App.vue` 的 `onLaunch` → `syncAgreementsFromServer()`）静默拉取并按版本号决定是否刷新缓存，失败则回落包内版本，不阻塞启动。
+
+`src/utils/privacy.ts` 维护「已同意 + 协议版本」状态：未同意前 `ensureSystemPermission()` 会拦截定位、通知等授权调用。比较的是**当前生效版本**（服务端版本更高时以服务端为准，见 `src/utils/agreementContent.ts`），所以服务端下发新版隐私政策后，旧版本的同意自动失效，App 启动会重新征求同意。权限用途文案在 `manifest.json` 的 `privacyDescription` / `android.permissions`。上架前仍需人工复核一遍与实际 SDK 采集行为是否一致。
+
+改了包内正文记得跑 `npm run export:agreements`，把正文同步到后端 `internal/agreements/content.json` 并重新部署后端，否则线上拉到的仍是旧版本。
 
 ### 6. 管理后台入口（安全）
 

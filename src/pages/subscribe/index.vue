@@ -1,9 +1,13 @@
 <template>
   <PageLayout>
     <view class="page">
-      <!-- 未登录：占位 + 提示 -->
+      <!-- 未登录：进入本页即弹一次登录弹窗；用户关掉后这里保留可点的登录入口 -->
       <view v-if="!isLoggedIn" class="guard-empty">
-        <text class="guard-text">登录后查看你的订阅</text>
+        <LoginPrompt
+          title="登录后查看你的订阅"
+          sub="订阅偶像、活动和城市，有变动时第一时间通知你"
+          reason="subscribe_page"
+        />
       </view>
 
       <template v-else>
@@ -50,14 +54,8 @@
           <!-- ── Tab 0 偶像 ── -->
           <template v-if="activeTab === 0">
             <view class="tab-tip">{{ TAB_TIPS[0] }}</view>
-            <LoginPrompt
-              v-if="!isLoggedIn"
-              title="登录后查看你的订阅"
-              sub="订阅偶像、活动和城市，有变动时第一时间通知你"
-              reason="subscribe_page"
-            />
             <view
-              v-else-if="store.myArtists.length === 0 && !store.loading.artists"
+              v-if="store.myArtists.length === 0 && !store.loading.artists"
               class="empty"
             >
               还没有订阅的偶像
@@ -111,13 +109,10 @@
                 <text class="seg-text">已失效</text>
               </view>
             </view>
-            <LoginPrompt
-              v-if="!isLoggedIn"
-              title="登录后查看你的订阅"
-              sub="订阅偶像后，这里会展示与你相关的活动"
-              reason="subscribe_page"
-            />
-            <view v-else-if="currentEventList.length === 0 && !isEventsLoading" class="empty">
+            <view
+              v-if="currentEventList.length === 0 && !isEventsLoading"
+              class="empty"
+            >
               暂无{{ eventStatus === "ongoing" ? "进行中" : "已失效" }}的活动
             </view>
             <!-- 窗口化：只渲染视口附近的卡片（三个 tab 共用同一个 scroll-view，
@@ -138,14 +133,8 @@
           <!-- ── Tab 2 城市 ── -->
           <template v-if="activeTab === 2">
             <view class="tab-tip">{{ TAB_TIPS[2] }}</view>
-            <LoginPrompt
-              v-if="!isLoggedIn"
-              title="登录后查看你的订阅"
-              sub="订阅你常去的城市，有活动第一时间通知你"
-              reason="subscribe_page"
-            />
             <view
-              v-else-if="store.myCities.length === 0 && !store.loading.cities"
+              v-if="store.myCities.length === 0 && !store.loading.cities"
               class="empty"
             >
               还没有订阅的城市
@@ -189,6 +178,7 @@ import CityPicker from "@/components/CityPicker/index.vue";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { useDictionaryStore } from "@/stores/dictionary";
+import { GENRES } from "@/constants/genres";
 import type { ArtistCardVO, CityCardVO, EventCardVO } from "@/types/subscription";
 import type { Event } from "@/types/event";
 import type { DictOption } from "@/types/dictionary";
@@ -201,9 +191,16 @@ const store = useSubscribeStore();
 const dictStore = useDictionaryStore();
 const isLoggedIn = computed(() => userStore.isLoggedIn);
 
-// CitySubCard 用的 type / tag 选项（从字典 store 取）
+// CitySubCard 用的 type / tag 选项
+// type 走后端字典（event_type，5 项，与首页「演出类型」一致）。
+// tag 走本地 GENRES 常量而不是后端 event_genre 字典：后者缺 ACG/GUOFENG
+// （这两项实际有活动数据），却带着 6 个库里 0 条的项（METAL/FOLK/LATIN/
+// WORLD/RNB_SOUL/OTHER），与首页「标签」区的 10 项对不上。
+// code 两边一致，订阅已保存的 extra.tag 仍能正常回显。
 const typeOptions = computed<DictOption[]>(() => dictStore.getItems("event_type"));
-const tagOptions = computed<DictOption[]>(() => dictStore.getItems("event_genre"));
+const tagOptions = computed<DictOption[]>(() =>
+  GENRES.map((g) => ({ code: g.code, name_cn: g.label })),
+);
 
 const statusBarHeight = ref(20);
 const tabBarHeight = ref(80);
@@ -270,11 +267,9 @@ onMounted(async () => {
     /* 忽略 */
   }
   // 字典预加载（不 await，避免阻塞首屏）
-  dictStore.ensureLoaded(["event_type", "event_genre"]).catch(() => {
+  dictStore.ensureLoaded(["event_type"]).catch(() => {
     /* 静默失败，picker 兜底空数组 */
   });
-  // 不在这里 requireLogin：进「我的订阅」是浏览行为，未登录也应能打开。
-  // 页面用 LoginPrompt 展示登录入口，用户点了才弹登录框（见 template 各 tab 首屏）。
   // ⚠️ 这里不要再调 loadAllTabs()：
   // uni-app 页面生命周期是 onLoad → onShow → onReady → mounted，
   // onShow 必然先于 onMounted 触发，两处都拉就是首次进页打两遍（5 个接口 → 10 个请求）。
@@ -283,15 +278,40 @@ onMounted(async () => {
 
 // 每次页面显示时刷新列表（订阅后从其他页返回能即时反映）
 onShow(async () => {
+  // 进入「我的订阅」弹一次登录框（见 promptLoginOnce 的说明）
+  promptLoginOnce()
   if (!userStore.isLoggedIn) return;
-  await Promise.all([
-    store.fetchMyArtists(),
-    store.fetchMyEvents("ongoing", 1, EVENT_PAGE_SIZE),
-    store.fetchMyEvents("expired", 1, EVENT_PAGE_SIZE),
-    store.fetchMyCities(),
-    store.fetchArtistRelatedEvents(1, 5),
-  ]);
+  await loadAllTabs()
 });
+
+/**
+ * 进入本页时弹一次登录框。
+ *
+ * 「我的订阅」的数据全在服务端（user_subscriptions），未登录进来只能看到空页面，
+ * 所以进页面就提示一次登录，而不是让用户自己猜。
+ *
+ * 用 onShow + 本地标志位保证「一次」：用户关掉弹窗后在页内来回切 tab、
+ * 或切到别的 Tab 再切回来，都不会再弹第二次（要再弹得主动点页面上的登录引导）。
+ */
+const loginPrompted = ref(false);
+
+function promptLoginOnce() {
+  if (loginPrompted.value) return;
+  if (userStore.isLoggedIn) return;
+  // 隐私政策还没同意时不弹登录框：登录会立刻请求后端，
+  // 属于「同意前不得收集个人信息」。等用户同意隐私政策后再由下面的 watch 补弹。
+  if (!userStore.privacyGranted) return;
+  loginPrompted.value = true;
+  userStore.requireLogin({ dismissible: true, reason: "subscribe_page" });
+}
+
+// 隐私政策刚同意（首次启动流程里用户点了「同意」）→ 补弹登录框
+watch(
+  () => userStore.privacyGranted,
+  (v) => {
+    if (v) promptLoginOnce();
+  },
+);
 
 // 登录后回到本页：补拉一次
 watch(
@@ -301,6 +321,7 @@ watch(
   }
 );
 
+/** 拉取三个 tab 需要的全部数据。onShow 与「登录后补拉」共用，避免两处复制同一段请求清单。 */
 async function loadAllTabs() {
   await Promise.all([
     store.fetchMyArtists(),

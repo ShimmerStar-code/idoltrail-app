@@ -15,7 +15,12 @@
 // 坐标系：系统定位返回 WGS84，天地图使用 CGCS2000，
 //   两者在国内的实际差异在亚米级，对「定位到城市」完全无影响，无需转换。
 //
-// IP 兜底仍然保留，因为坐标定位存在真实的失败路径：
+// IP 粗定位是**默认路径**（不只是兜底）。
+//   应用市场要求权限必须在用户主动触发对应功能时申请，
+//   首启就弹位置授权框会被判「强制、频繁、过度索取权限」，
+//   因此首页一律用 IP 推断城市（不碰任何系统权限），
+//   只有用户在「城市选择器」里点「重新定位」时才申请坐标定位权限。
+// IP 粗定位仍然保留，还因为坐标定位存在真实的失败路径：
 //   - 用户拒绝定位权限（且 Android 上被永久拒绝后再也不会弹框）
 //   - 室内 / 无网 / GPS 冷启动超时
 //   - 部分小众或老旧 Android 机型不支持系统定位（华为、小米、OV、vivo 等主流机型没问题）
@@ -147,9 +152,18 @@ async function locateByIp(): Promise<string> {
  * @param options.force 跳过本地缓存强制重新定位。CityPicker 的「重新定位」需要它——
  *   用户点这个按钮的前提就是当前城市不对（出差、换网络、用了代理），
  *   若命中 24h 缓存按下去会毫无变化，等于坏功能。
+ * @param options.precise 是否走**系统坐标定位**（会申请定位权限）。
+ *   默认 false —— 只走 IP 粗定位，**不申请任何系统权限**。
+ *
+ * ⚠️ 为什么默认不申请定位权限（应用市场检测「强制、频繁、过度索取权限」的报法）：
+ *   国内应用商店要求权限必须在**用户主动触发对应功能时**申请，
+ *   首启 / 首页加载就弹位置授权框会被判为过度索权。
+ *   所以首页定位一律走 IP 粗定位（不需要系统权限）；
+ *   只有用户自己在「城市选择器」里点「重新定位」才申请精确位置权限。
+ *
  * @returns 中文城市名；坐标与 IP 都失败时 reject，由调用方决定降级策略
  */
-export async function locateCity(options?: { force?: boolean }): Promise<string> {
+export async function locateCity(options?: { force?: boolean; precise?: boolean }): Promise<string> {
   if (!options?.force) {
     const cached = readCache()
     if (cached) {
@@ -158,16 +172,23 @@ export async function locateCity(options?: { force?: boolean }): Promise<string>
     }
   }
 
-  // 用户尚未同意隐私协议时，不得调用任何需要系统授权的 API（见 utils/privacy.ts）。
-  // 此时直接走 IP：它不碰系统权限，隐私弹窗同意后再次定位会自动升级为坐标定位。
+  // 用户尚未同意隐私协议时，不得发起任何定位请求：
+  //   · 系统坐标定位需要系统授权（见 utils/privacy.ts）；
+  //   · IP 粗定位虽不碰系统权限，但「用 IP 推断位置」本身就是个人信息处理，
+  //     同样必须等到用户同意之后。
   if (!hasPrivacyConsent()) {
-    console.log('[location] 未同意隐私协议，跳过坐标定位，直接 IP 粗定位')
+    throw new Error('未同意隐私协议，跳过定位')
+  }
+
+  // 粗定位路径（默认）：只用 IP 推断城市，不申请任何系统权限。
+  if (!options?.precise) {
     const city = await locateByIp()
     console.log('[location] IP 粗定位成功:', city)
     writeCache(city)
     return city
   }
 
+  // 精定位路径：仅在用户主动点击「重新定位」时走到这里，因此此时才申请权限是合规的。
   try {
     const city = await locateByCoordinate()
     console.log('[location] 坐标定位成功:', city)

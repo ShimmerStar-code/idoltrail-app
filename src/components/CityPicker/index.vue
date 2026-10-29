@@ -386,7 +386,9 @@ async function reLocate() {
   try {
     // force: true —— 用户点「重新定位」的前提就是当前城市不对（出差 / 换网络 / 用了代理），
     // 若命中 24h 缓存按下去毫无变化，这个按钮就等于坏了。
-    const city = await locateCity({ force: true })
+    // precise: true —— 只有用户主动点这个按钮时才申请精确位置权限，
+    // 这是「权限必须在用户主动触发时申请」这条应用市场要求的落点。
+    const city = await locateCity({ force: true, precise: true })
     clearLocateSafeTimer()
     // 接口返回与兜底定时器谁先到不确定，fallback 已把 locating 置 false 即代表它赢了
     if (!locating.value) return

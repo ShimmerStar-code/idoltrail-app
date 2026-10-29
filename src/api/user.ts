@@ -1,6 +1,6 @@
 import { request } from '@/utils/request'
 import { API_BASE_URL } from '@/utils/env'
-import type { Device, LoginLog, User } from '@/types/auth'
+import type { AgreementRecord, User } from '@/types/auth'
 
 export const userApi = {
   me(): Promise<User> {
@@ -24,20 +24,9 @@ export const userApi = {
     return request<{ ok: boolean; message: string }>('/user/cancel', { method: 'POST' })
   },
 
-  cancelRevoke(): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/user/cancel/revoke', { method: 'POST' })
-  },
-
-  devices(): Promise<Device[]> {
-    return request<Device[]>('/user/devices')
-  },
-
-  deleteDevice(id: number): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>(`/user/devices/${id}`, { method: 'DELETE' })
-  },
-
-  loginLogs(page = 1, pageSize = 20): Promise<{ list: LoginLog[]; total: number }> {
-    return request<{ list: LoginLog[]; total: number }>(`/user/login-logs?page=${page}&page_size=${pageSize}`)
+  /** 我的协议 / 隐私政策签署记录（同意时间、版本、来源） */
+  agreements(page = 1, pageSize = 20): Promise<{ list: AgreementRecord[]; total: number }> {
+    return request<{ list: AgreementRecord[]; total: number }>(`/user/agreements?page=${page}&page_size=${pageSize}`)
   },
 
   // multipart 文件上传（不走通用 request，单独封装）
@@ -75,18 +64,5 @@ export const userApi = {
         },
       })
     })
-  },
-
-  // 通过微信 getPhoneNumber 授权 code 绑定/更换手机号
-  bindPhone(code: string): Promise<{ phone: string; ok: boolean }> {
-    return request<{ phone: string; ok: boolean }>('/user/phone/bind', {
-      method: 'POST',
-      data: { code },
-    })
-  },
-
-  // 解绑手机号
-  unbindPhone(): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/user/phone/unbind', { method: 'DELETE' })
   },
 }

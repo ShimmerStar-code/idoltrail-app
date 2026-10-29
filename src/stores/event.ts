@@ -3,6 +3,7 @@ import { ref, shallowRef } from 'vue'
 import { eventApi } from '@/api/event'
 import type { Event, EventDetail } from '@/types/event'
 import type { PageResult } from '@/types'
+import { GENERIC_AUDIENCE_NOTICE } from '@/constants/eventMeta'
 
 const EMPTY_PAGE: PageResult<Event> = { total: 0, page: 1, page_size: 20, list: [] }
 
@@ -219,7 +220,9 @@ export const useEventStore = defineStore('event', () => {
             // 恒给空数组而不是留 undefined：详情页直接遍历它，
             // 旧缓存对象（3 分钟 TTL 内）可能压根没这个键
             contributors: res.contributors ?? [],
-            notice: res.notice ?? '• 演出时长\n以现场为准\n• 入场时间\n请于演出前约120分钟入场\n• 禁止携带物品\n大多数演出、展览及比赛场所禁止携带食品、饮料、专业摄录设备、打火机等物品，请注意现场工作人员和广播的提示，予以配合。',
+            // 后台没配 notice 时给通用观演提示；详情页会比对
+            // GENERIC_AUDIENCE_NOTICE 来标注「通用提示」来源，避免被误当成主办方公告
+            notice: res.notice ?? GENERIC_AUDIENCE_NOTICE,
           }
           detail.value = data
           putBounded(_detailCache, id, { data, ts: Date.now() }, DETAIL_CACHE_MAX)

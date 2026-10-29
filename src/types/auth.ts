@@ -134,30 +134,21 @@ export interface SendSmsResult {
   retry_after: number
 }
 
-export interface Device {
-  id: number
-  user_id: number
-  device_id: string
-  device_type: string
-  device_model: string
-  os_version: string
-  app_version: string
-  last_active_at: string
-  is_current: boolean
-  push_token?: string
-  push_platform?: string
-  push_provider?: string
-}
+/** 协议同意来源（后端白名单，越界会被拒绝） */
+export type AgreementSource = 'login' | 'privacy_popup' | 'agreement_page'
 
-export interface LoginLog {
+/**
+ * 协议 / 隐私政策签署记录（GET /user/agreements）
+ *
+ * 后端为合规展示做了裁剪：只回传展示所需字段，
+ * IP、设备型号等属于后台留存字段，不下发给 App。
+ */
+export interface AgreementRecord {
   id: number
-  user_id?: number
-  actor_type: 'user' | 'admin'
-  type: string
-  success: boolean
-  ip: string
-  device_id: string
-  ua: string
-  fail_reason: string
-  created_at: string
+  agreement_type: 'user_agreement' | 'privacy_policy' | string
+  version: string
+  source: string
+  accepted_at: string
+  device_type: string
+  platform: string
 }

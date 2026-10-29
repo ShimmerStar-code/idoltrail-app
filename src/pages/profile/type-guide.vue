@@ -19,20 +19,27 @@
 
 <script setup lang="ts">
 import PageLayout from '@/components/PageLayout/index.vue'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { EVENT_TYPE_OPTIONS } from '@/constants/eventMeta'
 
 // 模板返回按钮：不能在模板里写 uni.navigateBack()，Vue 会把它解析成组件实例属性
 function goBack() { uni.navigateBack(); }
 const statusBarHeight = ref(20)
 onMounted(() => { statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 20 })
-const types = [
-  { name: '演唱会', desc: '以歌手或乐队为核心的现场音乐表演活动，通常在大型体育场馆或演唱会场地举办，观众以听歌为主要目的。' },
-  { name: '音乐节', desc: '多个艺术家或乐队在同一场地分时段演出的大型户外或室内活动，通常持续数天，氛围轻松自由。' },
-  { name: '粉丝见面会', desc: '偶像与粉丝近距离互动的活动，通常包括签名、合影、问答等环节，规模较小，互动性强。' },
-  { name: '线上活动', desc: '通过网络直播平台进行的虚拟演出或互动活动，粉丝无需到场即可参与。' },
-  { name: '漫展', desc: '以动漫、游戏、二次元文化为主题的展览活动，通常包括coser展示、声优嘉宾、周边售卖等内容。' },
-  { name: '音乐会', desc: '以古典音乐或交响乐为主的正式演出，通常在音乐厅举办，观众需保持安静欣赏。' },
-]
+
+// 类别清单直接取 EVENT_TYPE_OPTIONS，不再在本页另抄一份。
+// 之前这里硬编码 6 条，其中「线上活动」后端 event_type_ref 根本没有对应 code，
+// 用户按说明去找会找不到入口；首页/活动列表也只有 5 类。
+const TYPE_DESC: Record<string, string> = {
+  CONCERT: '以歌手或乐队为核心的现场音乐表演活动，通常在大型体育场馆或演唱会场地举办，观众以听歌为主要目的。',
+  FESTIVAL: '多个艺术家或乐队在同一场地分时段演出的大型户外或室内活动，通常持续数天，氛围轻松自由。',
+  FAN_MEETING: '偶像与粉丝近距离互动的活动，通常包括签名、合影、问答等环节，规模较小，互动性强。',
+  ANIME_EXPO: '以动漫、游戏、二次元文化为主题的展览活动，通常包括coser展示、声优嘉宾、周边售卖等内容。',
+  CONCERT_HALL: '以古典音乐或交响乐为主的正式演出，通常在音乐厅举办，观众需保持安静欣赏。',
+}
+const types = computed(() =>
+  EVENT_TYPE_OPTIONS.map((o) => ({ name: o.label, desc: TYPE_DESC[o.code] ?? '' })),
+)
 </script>
 
 <style scoped>

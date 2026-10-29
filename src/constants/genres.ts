@@ -109,3 +109,33 @@ export function genreGradient(color: string): string {
 export function getGenreByCode(code: string): GenreItem | undefined {
   return GENRES.find((g) => g.code === code)
 }
+
+/**
+ * 流派 code → 中文文案。
+ *
+ * 首页标签区显示的是「日音/韩音」，艺人详情页此前直接吐裸码 `JPOP`，
+ * 同一份数据两种语言，这里统一到 GENRES 的 label。
+ * 未知 code（后端可能有细分流派）回退原值，至少不显示成空白。
+ */
+export function genreLabel(code?: string | null): string {
+  if (!code) return ""
+  return getGenreByCode(code)?.label ?? code
+}
+
+/**
+ * 从带置信度的流派列表里取置信度最高的一项。
+ *
+ * 后端 genres[] 一般已按 confidence 降序，但不同数据来源（导入 / 人工标注）
+ * 不保证有序，所以这里自己取一次最大值。缺 confidence 视为 0，
+ * 全都没有时退回第一项，保证有值就能显示。
+ */
+export function pickTopGenre(
+  list?: { genre_code?: string; confidence?: number }[] | null,
+): string {
+  if (!list || list.length === 0) return ""
+  let best = list[0]
+  for (const g of list) {
+    if ((g.confidence ?? 0) > (best.confidence ?? 0)) best = g
+  }
+  return best.genre_code || ""
+}

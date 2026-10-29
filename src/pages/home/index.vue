@@ -169,25 +169,20 @@
       />
       <!-- 搜索历史：搜索框获得焦点但还没输入时展示，点一条直接回填并搜索 -->
       <view v-if="showSearchHistory" class="history-mask" :style="{ top: headerBottom + 'px' }">
-        <template v-if="searchHistory.length">
-          <view class="history-head">
-            <text class="history-title">搜索历史</text>
-            <text class="history-clear" @click="onClearHistory">清空</text>
+        <view class="history-head">
+          <text class="history-title">搜索历史</text>
+          <text class="history-clear" @click="onClearHistory">清空</text>
+        </view>
+        <view class="history-tags">
+          <view
+            v-for="item in searchHistory"
+            :key="item.q"
+            class="history-tag"
+            hover-class="history-tag--hover"
+            @click="onHistoryTap(item.q)"
+          >
+            <text class="history-tag-text">{{ item.q }}</text>
           </view>
-          <view class="history-tags">
-            <view
-              v-for="item in searchHistory"
-              :key="item.q"
-              class="history-tag"
-              hover-class="history-tag--hover"
-              @click="onHistoryTap(item.q)"
-            >
-              <text class="history-tag-text">{{ item.q }}</text>
-            </view>
-          </view>
-        </template>
-        <view v-else class="history-empty">
-          <text class="history-empty-text">还没有搜索记录</text>
         </view>
       </view>
       <!-- 搜索结果：紧贴 header 底部，可上下滚动 -->
@@ -239,7 +234,7 @@ import {
 import { computed, onMounted, ref, watch } from "vue";
 import { onShow, onPageScroll, onHide, onUnload } from "@dcloudio/uni-app";
 import { GENRES } from "@/constants/genres";
-import { effectiveEventStatus } from "@/constants/eventMeta";
+import { effectiveEventStatus, EVENT_TYPE_OPTIONS, EVENT_TYPE_SLUG } from "@/constants/eventMeta";
 import { cityEn } from "@/constants/cities";
 import { getStatusBarHeight } from "@/utils/system";
 import { locateCity } from "@/utils/location";
@@ -335,9 +330,16 @@ function onSearchInput() {
 // ── 搜索历史 ──
 const searchHistory = ref<SearchHistoryItem[]>([]);
 
-/** 面板只在「已聚焦 + 还没输入关键词」时露出，有输入时让位给搜索结果 */
+/**
+ * 面板只在「已聚焦 + 还没输入关键词 + 确实有历史记录」时露出。
+ * 没有历史记录时整个面板不出现（只剩一个空壳没有信息量），
+ * 有输入时让位给搜索结果。
+ */
 const showSearchHistory = computed(
-  () => searchActive.value && !searchKeyword.value.trim(),
+  () =>
+    searchActive.value &&
+    !searchKeyword.value.trim() &&
+    searchHistory.value.length > 0,
 );
 
 function loadSearchHistory() {
@@ -408,10 +410,8 @@ async function doLocate() {
   locating.value = true;
 
   // 超时兜底：15s 内未完成则降级为北京。
-  // 坐标定位要串行经过「系统权限弹窗（用户思考时间不可控）→ 系统定位 → 服务端逆地理编码」，
-  // 3s 的旧预算只够 IP 定位用，改成坐标定位后必然每次都走兜底，坐标形同虚设。
-  // 真正卡住定位的三个环节各有自己的上限（权限由系统弹窗把控、定位 8s、
-  // 逆地理是一次带 7 天缓存的普通请求），这里的 15s 是覆盖它们的最后一道保险。
+  // 首页定位现在是 IP 粗定位（不申请系统权限），正常几百毫秒就回；
+  // 15s 是给弱网 / 后端 IP 解析服务慢留的余量。
   // done 闸门必须存在：接口返回与兜底定时器谁先到不确定，两条路径都会写
   // currentCity/locating，不加闸门会出现「已定位成功又被兜底改回北京」。
   let done = false;
@@ -447,8 +447,9 @@ async function doLocate() {
   locateSafeTimer = setTimeout(fallback, 15000);
 
   try {
-    // 坐标定位优先（wgs84 系统定位 + 服务端天地图逆地理），失败时
-    // locateCity 内部自动降级到 IP 粗定位，两级都失败才会 reject 到这里。
+    // 默认只走 IP 粗定位（不申请任何系统权限）：首页加载不弹位置授权框，
+    // 符合应用市场「权限必须在用户主动触发时申请」的要求。
+    // 需要精确位置时，用户在「城市选择器」点「重新定位」才会走坐标定位。
     const city = await locateCity();
     console.log("[Location] 城市定位结果:", city);
     settle(city);
@@ -522,7 +523,6 @@ onMounted(() => {
   // 面板顶部 = 状态栏高度 + 导航行高度(约 72px) + 少量间距
   noticeBtnTop.value = statusBarHeight.value + 72;
   loadFeatured();
-  doLocate();
   // 首屏补拉订阅态（未登录会静默跳过）
   refreshSubscriptionState();
   // 拉取通知未读数（登录态下）
@@ -531,6 +531,24 @@ onMounted(() => {
   }
   loadSearchHistory();
 });
+
+/**
+ * 定位只在取得隐私政策同意之后才做。
+ *
+ * ⚠️ 应用市场对「首启 / 首页加载就弹位置授权框」的判罚是
+ * 「强制、频繁、过度索取权限」（引擎2 的报法）。所以：
+ *   · 这里走的是 IP 粗定位，**不申请任何系统权限**；
+ *   · 精确位置权限只有用户在「城市选择器」点「重新定位」时才会申请
+ *     （见 components/CityPicker/index.vue 的 reLocate）；
+ *   · 隐私同意之前连 IP 定位都不发（IP 推断位置本身也是个人信息处理）。
+ */
+watch(
+  () => userStore.privacyGranted,
+  (granted: boolean) => {
+    if (granted) void doLocate();
+  },
+  { immediate: true },
+);
 
 watch(searchActive, (val) => {
   // 进入搜索态时读一次历史：可能在别的页面（如搜索结果页）新增过，
@@ -590,23 +608,20 @@ function toggleNotifPanel() {
   showNotifPanel.value = !showNotifPanel.value;
 }
 
-// 首页分类入口。code 是 URL slug，由 event/list.vue 的 TYPE_SLUG_TO_CODE
-// 转成后端 event_type_ref.type_code。label 与参照表 name_cn 保持一致。
-const eventTypes = [
-  { code: "concert", label: "演唱会", img: "/static/icons/concert.svg" },
-  {
-    code: "festival",
-    label: "音乐节",
-    img: "/static/icons/festival.svg",
-  },
-  {
-    code: "fan_meeting",
-    label: "粉丝见面会",
-    img: "/static/icons/fanmeeting.svg",
-  },
-  { code: "anime_expo", label: "漫展", img: "/static/icons/anime.svg" },
-  { code: "concert_hall", label: "音乐会", img: "/static/icons/hall.svg" },
-];
+// 首页分类入口。类别清单与文案统一取 @/constants/eventMeta，
+// 这里只额外补图标；code 是 URL slug，由 event/list.vue 反查回后端 type_code。
+const TYPE_ICONS: Record<string, string> = {
+  CONCERT: "/static/icons/concert.svg",
+  FESTIVAL: "/static/icons/festival.svg",
+  FAN_MEETING: "/static/icons/fanmeeting.svg",
+  ANIME_EXPO: "/static/icons/anime.svg",
+  CONCERT_HALL: "/static/icons/hall.svg",
+};
+const eventTypes = EVENT_TYPE_OPTIONS.map((o) => ({
+  code: EVENT_TYPE_SLUG[o.code] ?? o.code.toLowerCase(),
+  label: o.label,
+  img: TYPE_ICONS[o.code] ?? "",
+}));
 
 const regions = ["本地", "全国", "全球"];
 
@@ -732,8 +747,16 @@ function goTypeList(i: number) {
   max-height: 70vh;
   overflow-y: auto;
   background: #fff;
-  border-radius: 0 0 30rpx 30rpx;
+  /* 四角圆角：与搜索结果面板（SearchOverlay，24rpx）保持一致。
+     之前只给下方两个角加了圆角，浮层与白色搜索框贴在一起时
+     看起来像「只有下面两个角是圆的」，很割裂。 */
+  border-radius: 24rpx;
   box-shadow: 0 12rpx 40rpx rgba(0, 0, 0, 0.18);
+  /* 与搜索框之间留出间距：面板顶边原本直接压住搜索框下沿，
+     白色面板 + 白色搜索框连成一片，像「长在搜索框下面」。
+     搜索结果面板靠 20rpx padding 达到同样效果，这里用 margin-top 对齐，
+     缝隙里露出暗色遮罩，面板才是「浮」在背景上而不是「贴」着搜索框。 */
+  margin-top: 20rpx;
   padding: 8rpx 30rpx 30rpx;
   box-sizing: border-box;
 }
@@ -777,14 +800,6 @@ function goTypeList(i: number) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.history-empty {
-  padding: 60rpx 0;
-  text-align: center;
-}
-.history-empty-text {
-  font-size: 24rpx;
-  color: rgba(187, 187, 187, 1);
 }
 
 /* Scroll */

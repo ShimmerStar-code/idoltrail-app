@@ -3,6 +3,9 @@ import { API_BASE_URL } from '@/utils/env'
 import {
   getAccessToken,
   getRefreshToken,
+  getAccessExpiresAt,
+  getRefreshExpiresAt,
+  getRefreshedAt,
   setTokens,
   clearTokens,
   clearCachedUser,
@@ -21,6 +24,29 @@ const REFRESH_TIMEOUT = 10000
 
 /** 触发会话过期的业务错误码 */
 const AUTH_EXPIRED_CODES = [40101, 40102]
+
+/**
+ * access token 提前续期阈值（ms）。
+ *
+ * access token 只有 15 分钟有效期。若不做预续期，用户静默一段时间后的
+ * **第一个**请求必然吃一次 401 → refresh → 重放，白跑一个来回。
+ * 剩余不足 2 分钟就先换新，用户完全感知不到。
+ */
+const ACCESS_REFRESH_THRESHOLD = 2 * 60 * 1000
+
+/**
+ * refresh token 滑动续期阈值（ms，24 小时）。
+ *
+ * 服务端 refresh token 有效期 60 天，且每次 refresh 都会重签、TTL 重置为完整时长。
+ * 客户端在「距上次续期超过 24 小时」时主动续一次，就把有效期重置为
+ * 「当天 + 60 天」—— 这就是滑动续期。
+ *
+ * 用 24 小时而不是「剩余不足 N 天」：后者会出现「用户明明天天在用，
+ * 却因为没触达阈值而错过续期」的窗口。24 小时能保证
+ * **只要 60 天内打开过 App，登录态就一定被续上**；
+ * 超过 60 天没打开，refresh 过期 → 401 → 弹强制登录 → 重新登录。
+ */
+const REFRESH_RENEW_INTERVAL = 24 * 60 * 60 * 1000
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
@@ -83,10 +109,18 @@ async function doRefresh(): Promise<string | null> {
       })
     })
     if (res?.code === 0) {
-      setTokens(res.data.access_token, res.data.refresh_token)
+      // 连同服务端下发的剩余有效期一起落盘，客户端才能判断「快过期了」并主动续期
+      setTokens(
+        res.data.access_token,
+        res.data.refresh_token,
+        res.data.access_expires_in,
+        res.data.refresh_expires_in,
+      )
       // refresh 成功 = 会话已恢复,解除"会话过期已通知"锁,
       // 否则本次会话内后续真的过期时不会再弹强制登录。
       sessionExpiredNotified = false
+      // 通知 store：内存里的 token 副本已经过时，storage 里才是最新的
+      tokenRefreshedHandler?.()
       return res.data.access_token
     }
     return null
@@ -101,6 +135,48 @@ function ensureFreshToken(): Promise<string | null> {
     refreshing = null
   })
   return refreshing
+}
+
+/**
+ * 是否需要**主动**续期（不等 401）。
+ *
+ * 三条触发条件（任一命中即续）：
+ *   1. refresh token 已过期 → **不续**（续了也没用），交给 401 流程弹强制登录
+ *   2. 距上次续期超过 24 小时 → 续，把有效期重置为「当天 + 60 天」（滑动续期）
+ *   3. access token 剩余不足 2 分钟 → 续，避免下一个请求吃 401
+ */
+function shouldRefreshNow(): boolean {
+  if (!getRefreshToken()) return false
+  const now = Date.now()
+  const refreshExp = getRefreshExpiresAt()
+  // refresh 已过期：续期必然失败，别白跑一趟；让 401 流程去弹强制登录
+  if (refreshExp && refreshExp <= now) return false
+  // 距上次续期超过 24 小时 → 滑动续期（老客户端没记过时间戳，首次会续一次）
+  const refreshedAt = getRefreshedAt()
+  if (!refreshedAt || now - refreshedAt >= REFRESH_RENEW_INTERVAL) return true
+  // access 快过期 → 换新
+  const accessExp = getAccessExpiresAt()
+  if (accessExp && accessExp - now <= ACCESS_REFRESH_THRESHOLD) return true
+  return false
+}
+
+/**
+ * 主动滑动续期：需要时换一组新 token（并把本地到期时间往后推）。
+ *
+ * 语义：**只要 60 天内用过 App，登录态就一直有效**。
+ * - 距上次续期超过 24 小时 → 续一次，refresh 有效期重置为「当天 + 60 天」
+ * - access 快过期 → 一并换新，避免下一个请求吃 401
+ *
+ * 失败**不**弹窗也不抛错 —— 续期失败通常意味着 refresh 也过期了，
+ * 后续请求会自然收到 401，由既有的「401 → refresh → 弹强制登录」流程接管，
+ * 这里静默失败可避免重复弹窗 / 重复写 returnTo。
+ *
+ * @returns true=本次确实换了新 token
+ */
+export async function refreshSessionIfStale(): Promise<boolean> {
+  if (!shouldRefreshNow()) return false
+  const token = await ensureFreshToken()
+  return !!token
 }
 
 // ─── 401 会话过期 handler：注入式，避开 request ↔ userStore 循环依赖 ───
@@ -121,6 +197,21 @@ export function resetSessionExpiredNotice() {
  */
 export function setAuthExpiredHandler(fn: AuthExpiredHandler) {
   authExpiredHandler = fn
+}
+
+// ─── token 续期成功回调：注入式，同样避开 request ↔ userStore 循环依赖 ───
+type TokenRefreshedHandler = () => void
+let tokenRefreshedHandler: TokenRefreshedHandler | null = null
+
+/**
+ * 续期成功后回调，让 store 的内存 token 副本跟上 storage 里的新 token。
+ *
+ * 为什么必须同步：storage 是 token 的权威来源，request.ts 续期时直接改它；
+ * 而 store 里的 ref 是登录那一刻的快照。若不同步，store 里可能拿着
+ * **已被服务端轮转失效**的旧 token 回写 storage，用户会被莫名其妙踢下线。
+ */
+export function setTokenRefreshedHandler(fn: TokenRefreshedHandler) {
+  tokenRefreshedHandler = fn
 }
 
 function notifySessionExpired() {
@@ -218,20 +309,46 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           reject(bizError(body.message, body.code))
         },
         fail: (err) => {
-          // 主动取消：不弹 toast，也不当业务错误处理（调用方自己决定是否忽略）
-          if (isAbortError(err)) {
+          // 主动取消：只有「我们自己传了 signal 且已被 abort」才算取消。
+          //
+          // ⚠️ 不能靠 errMsg 判：Android 端网络不可达（后端宕机、连错地址、
+          //    弱网超时）时 uni.request 的 errMsg 同样是 "request:fail abort"，
+          //    与「主动取消」文案完全一致。早期实现按文案判定，
+          //    结果后端一挂，全站请求都被当成「用户主动取消」静默吞掉：
+          //    不弹 toast、不提示，页面一片空白（只在心里/eventStore 里留一行日志）。
+          if (options.signal?.aborted) {
             reject(abortError())
             return
           }
           if (!silent) {
-            const timedOut = String(err?.errMsg || '').includes('timeout')
-            uni.showToast({ title: timedOut ? '请求超时，请检查网络' : '网络错误', icon: 'none' })
+            const msg = String(err?.errMsg || '').toLowerCase()
+            const timedOut = msg.includes('timeout')
+            uni.showToast({
+              title: timedOut ? '请求超时，请检查网络' : '网络错误，请稍后重试',
+              icon: 'none',
+            })
           }
           reject(err)
         },
       })
     })
-  return withAbort(doRequest(), options.signal)
+  /**
+   * 前置滑动续期。
+   *
+   * access token 15 分钟就会过期，而 refresh 是 365 天且可滑动续期。
+   * 这里在发请求**之前**判断一次：access 快过期就换新，refresh 快到期也换新
+   * （把 refresh 的 TTL 往后推，实现「登录长期有效」）。
+   *
+   * 续期失败不阻断本次请求 —— 后面的 401 分支会接管（再 refresh 一次，
+   * 还失败才弹强制登录）。
+   */
+  const start = async (): Promise<T> => {
+    if (!skipAuth) {
+      await refreshSessionIfStale()
+    }
+    return doRequest()
+  }
+  return withAbort(start(), options.signal)
 }
 
 /** 取消错误统一带 code = -1：与后端 errno（4xxxx/5xxxx）不冲突，便于调用方按 code 分流 */
@@ -241,12 +358,6 @@ function abortError(): Error & { code?: number } {
   const err = new Error('请求已取消') as Error & { code?: number }
   err.code = ABORT_CODE
   return err
-}
-
-/** 判断 uni.request 的 fail 回调是否由 abort 触发（各端 errMsg 文案不一致） */
-function isAbortError(err: any): boolean {
-  const msg = String(err?.errMsg || '').toLowerCase()
-  return msg.includes('abort')
 }
 
 /**

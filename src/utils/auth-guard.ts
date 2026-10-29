@@ -13,8 +13,10 @@ export interface WithLoginOptions {
 
 /**
  * 业务侧用：
- *   const ok = await withLogin(() => eventApi.favorite(id))
- *   if (ok) uni.showToast({ title: '已收藏' })
+ *   const ok = await withLogin(() => subscriptionApi.subscribeArtist(artistId))
+ *   if (ok) uni.showToast({ title: '已订阅' })
+ *
+ * 用户在登录弹窗里点取消 → resolve(null)，调用方要自己判空兜底。
  */
 export function withLogin<T>(
   fn: () => T | Promise<T>,

@@ -83,12 +83,14 @@ export default [
 
     {
       // 构建脚本跑在 Node 里，与浏览器源码的全局变量不同（process 等）。
-      // 不引 globals 包也能覆盖：本项目脚本只用这两个。
+      // 不引 globals 包也能覆盖：本项目脚本只用这三个。
       files: ['scripts/**/*.mjs'],
       languageOptions: {
         globals: {
           process: 'readonly',
           console: 'readonly',
+          // export-agreements.mjs 用 Buffer 做 base64 编码
+          Buffer: 'readonly',
         },
       },
     },

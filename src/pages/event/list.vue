@@ -132,7 +132,7 @@ import CityPicker from "@/components/CityPicker/index.vue"
 import { useVirtualList } from "@/composables/useVirtualList"
 import { cityEn } from "@/constants/cities"
 import { getGenreByCode } from "@/constants/genres"
-import { effectiveEventStatus } from "@/constants/eventMeta"
+import { effectiveEventStatus, EVENT_TYPE_SLUG_TO_CODE } from "@/constants/eventMeta"
 import { eventApi } from "@/api/event"
 const store = useEventStore()
 const statusBarHeight = ref(20)
@@ -155,15 +155,7 @@ const availableCities    = ref<string[]>([])
 
 // URL 里的 type 走小写下划线 slug (concert / festival / ...)，
 // 内部 selectedType 保留后端 event_type_ref.type_code (CONCERT / FESTIVAL / ...)
-// 与 src/constants/eventMeta.ts 中 EVENT_TYPE_OPTIONS.code 保持对应
-const TYPE_SLUG_TO_CODE: Record<string, string> = {
-  concert:       "CONCERT",
-  festival:      "FESTIVAL",
-  music_festival:"FESTIVAL",
-  fan_meeting:   "FAN_MEETING",
-  anime_expo:    "ANIME_EXPO",
-  concert_hall:  "CONCERT_HALL",
-}
+// 映射表统一在 @/constants/eventMeta 的 EVENT_TYPE_SLUG_TO_CODE（首页入口同源）
 
 onLoad((options) => {
   const info = uni.getSystemInfoSync()
@@ -172,7 +164,7 @@ onLoad((options) => {
   // 入口参数
   if (options?.genre)  selectedGenre.value  = String(options.genre)
   if (options?.type) {
-    const code = TYPE_SLUG_TO_CODE[String(options.type)]
+    const code = EVENT_TYPE_SLUG_TO_CODE[String(options.type)]
     if (code) selectedType.value = code
   }
   if (options?.status) selectedStatus.value = String(options.status)

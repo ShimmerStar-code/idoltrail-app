@@ -111,7 +111,7 @@
             "navigationStyle": "custom"
          }
       },
-{
+      {
          "path": "pages/profile/donate",
          "style": {
            "navigationBarTitleText": "",
@@ -154,17 +154,6 @@
                "style": {
                   "navigationBarTitleText": "场馆详情",
                   "navigationStyle": "custom"
-               }
-            }
-         ]
-      },
-      {
-         "root": "pages/search",
-         "pages": [
-            {
-               "path": "index",
-               "style": {
-                  "navigationBarTitleText": "搜索"
                }
             }
          ]

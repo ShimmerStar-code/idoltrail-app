@@ -111,6 +111,24 @@ export const useSubscribeStore = defineStore('subscribe', () => {
   let _citiesSeq = 0
   let _relatedSeq = 0
 
+  /**
+   * 归一化 ids_only 响应。
+   *
+   * 契约是 { ids: string[] }，但这里必须做防御：三路是 allSettled 并发，
+   * 任一路的 ids 缺失 / 为 null（后端某版本未识别 ids_only 会退回 {list,total}，
+   * 或 Go 的 nil slice 序列化成 null）都会抛 "xxx.ids is not iterable"，
+   * 而这个异常发生在 applyIdSetDiff 之前 —— 三个 id 集合一个都写不进去，
+   * 全 App 的订阅态反显（星标、已关注按钮）静默停更，只能靠重新登录恢复。
+   *
+   * 降级为空集合并打印原始响应：功能可用（最坏是星标全灭），
+   * 且下一次启动就能从日志里看到后端到底返回了什么形状。
+   */
+  function readIdSet(res: { ids?: string[] } | undefined): Set<string> {
+    if (res && Array.isArray(res.ids)) return new Set(res.ids)
+    console.warn('[subscribe] ids_only 响应结构异常，按空集合处理', JSON.stringify(res))
+    return new Set<string>()
+  }
+
   async function fetchMySubscribedIds(): Promise<void> {
     if (_fetchingIds.value) return
     _fetchingIds.value = true
@@ -127,15 +145,15 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       ])
       // 已登出 / 已有更新的请求 → 丢弃本次响应
       if (seq !== _idsSeq) return
-      if (a.status === 'fulfilled') applyIdSetDiff(subscribedArtistIds, new Set(a.value.ids))
-      if (c.status === 'fulfilled') applyIdSetDiff(subscribedCityIds, new Set(c.value.ids))
+      if (a.status === 'fulfilled') applyIdSetDiff(subscribedArtistIds, readIdSet(a.value))
+      if (c.status === 'fulfilled') applyIdSetDiff(subscribedCityIds, readIdSet(c.value))
       if (e.status === 'fulfilled') {
         // 后端 user_subscriptions.target_id 是字符串列（artist/city 用 uuid），
         // 活动 id 存进去也是字符串；而 subscribedEventIds 全 App 按 number 查
         // （isEventSubscribed(ev.id) 传的是 number），所以这里必须转。
         // Number('') === 0，脏数据会静默变成 id 0，用 isSafeInteger 挡掉。
         const ids = new Set<number>()
-        for (const raw of e.value.ids) {
+        for (const raw of readIdSet(e.value)) {
           const n = Number(raw)
           if (Number.isSafeInteger(n) && n > 0) ids.add(n)
         }

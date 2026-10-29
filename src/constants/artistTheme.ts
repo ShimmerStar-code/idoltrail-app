@@ -168,8 +168,14 @@ function findPaletteByBase(base: string): ArtistTheme | null {
  * ⚠️ 必须返回同一个对象引用而非副本：调用方（EventCard 等）只读不写，
  *    共享引用反而让 Vue 的依赖比对更早短路。若将来有调用方就地修改返回值，
  *    需要改成返回浅拷贝。
+ *
+ * 缓存必须有上限：key 是「theme_color|artist_id」，取值集合随浏览过的艺人单调增长，
+ * 没有 TTL 也没有容量限制的话，条目会永久驻留。超过阈值就整表清空
+ * （值本身是纯函数产物，清掉只是下次重算，代价可忽略）。
  */
 const _themeCache = new Map<string, ArtistTheme>();
+/** 缓存条目上限，超过即整表清空 */
+const THEME_CACHE_MAX = 200;
 
 export function resolveArtistTheme(
   themeColor?: string | null,
@@ -199,6 +205,7 @@ export function resolveArtistTheme(
     result = { ...ARTIST_THEME_PALETTE[idx] };
   }
 
+  if (_themeCache.size >= THEME_CACHE_MAX) _themeCache.clear();
   _themeCache.set(cacheKey, result);
   return result;
 }

@@ -11,11 +11,6 @@
       </view>
 
       <scroll-view scroll-y class="scroll-body">
-        <!-- ⚠️ 临时预览标记：与脚本里的 PREVIEW 常量一起删除 ⚠️ -->
-        <text v-if="PREVIEW" class="preview-tip"
-          >预览模式 · 支付未接通，看完请把 donate.vue 的 PREVIEW 改回 false</text
-        >
-
         <!-- Hero：把主语交还粉丝 —— App 是目送的人，不是要账的人 -->
         <view class="hero">
           <text class="hero-title">请你尽管全量奔赴向热爱</text>
@@ -158,13 +153,6 @@ import {
 } from "@/utils/nativePay";
 import { DONATE_ENABLED, DONATE_IOS_ENABLED, DONATE_NATIVE_READY } from "@/utils/env";
 
-// ============================================================================
-// 预览开关：临时用来绕过 DONATE_ENABLED / 平台判定 / 档位来源三道门禁，
-// 只为在真机上看到页面效果。目前为 false，即走正常门禁逻辑。
-// 页面里所有 if (PREVIEW) 分支都是恒假的死代码，后续可直接删除。
-// ============================================================================
-const PREVIEW = false;
-
 /**
  * ── 资金去向（静态文案 + 占比条）──
  * 不做「已有多少人赞助 / 共收到多少」这类需要后端统计的数字（后端无公开统计接口），
@@ -205,8 +193,6 @@ const isIOS = computed(() => isAppleIAPPlatform());
 const isAndroid = computed(() => getNativePlatform() === "android");
 
 const donateAvailable = computed(() => {
-  // 预览模式：直接放行，仅用于看 UI
-  if (PREVIEW) return true;
   if (!DONATE_ENABLED) return false;
   // iOS：StoreKit IAP
   if (isIOS.value) return DONATE_IOS_ENABLED && tiers.value.length > 0;
@@ -265,22 +251,9 @@ const tiers = ref<DonationTier[]>([]);
 /** 当前选中的档位 key */
 const selectedTierKey = ref("");
 
-/**
- * ⚠️ 临时预览兜底档位 —— 与 PREVIEW 一起删除。
- * 预览时后端 /donation-products 拉不到（如后端未启动）也能看到完整金额网格。
- * 档位值对齐后端白名单 donation.tip.1/5/10/20/50/100。
- */
-const PREVIEW_FALLBACK_TIERS: DonationTier[] = [1, 5, 10, 20, 50, 100].map((yuan) => ({
-  key: `preview.tip.${yuan}`,
-  productId: `preview.tip.${yuan}`,
-  amountCents: yuan * 100,
-  amountYuan: yuan,
-}));
-
 onMounted(async () => {
   statusBarHeight.value = getStatusBarHeight();
-  // 预览模式下不限平台：Android/H5 也拉档位，否则金额网格会是空的
-  const channelOpen = PREVIEW || (isIOS.value ? DONATE_IOS_ENABLED : DONATE_NATIVE_READY);
+  const channelOpen = isIOS.value ? DONATE_IOS_ENABLED : DONATE_NATIVE_READY;
   if (channelOpen) {
     await loadTiers();
   }
@@ -315,18 +288,17 @@ async function loadTiers() {
       .filter((t) => t.amountCents >= MIN_AMOUNT * 100 && t.amountCents <= MAX_AMOUNT * 100)
       .sort((a, b) => a.amountCents - b.amountCents);
 
-    // 预览模式：后端没给档位时用本地兜底，保证 UI 能完整展示
-    const finalList = list.length ? list : PREVIEW ? PREVIEW_FALLBACK_TIERS : [];
-    tiers.value = finalList;
+    // 档位只有服务端这一处来源：拿不到就不展示，绝不用本地假档位顶替
+    // （假 productId 提交给 IAP 验签必然失败，暴露的是「能点但付不掉」）
+    tiers.value = list;
     // 默认选中中间档而非最便宜的：默认选中价是强锚点，钉在 ¥1 会让用户把 ¥20 当成「加价」，
     // 反过来从 ¥20 往下调是「减价」，阻力小得多。这只是前端默认选中，
     // 实际支付金额始终以服务端下发的档位为准。
-    selectedTierKey.value = finalList[Math.floor(finalList.length / 2)]?.key || "";
+    selectedTierKey.value = list[Math.floor(list.length / 2)]?.key || "";
   } catch (e) {
     console.warn("[donate] load tiers failed", e);
-    // 预览模式：请求失败也用兜底档位
-    tiers.value = PREVIEW ? PREVIEW_FALLBACK_TIERS : [];
-    selectedTierKey.value = PREVIEW ? PREVIEW_FALLBACK_TIERS[3]?.key || "" : "";
+    tiers.value = [];
+    selectedTierKey.value = "";
   }
 }
 
@@ -559,16 +531,6 @@ function onSuccessClose() {
 }
 
 /* ─── 顶部 ─── */
-.preview-tip {
-  display: block;
-  margin: 0 24rpx 12rpx;
-  padding: 10rpx 20rpx;
-  border-radius: 12rpx;
-  background: #e6f7f4;
-  color: #0f766e;
-  font-size: 20rpx;
-  line-height: 1.5;
-}
 .nav {
   display: flex;
   align-items: center;

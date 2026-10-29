@@ -30,6 +30,12 @@
             <text class="section-extra">当前版本：v{{ APP_VERSION_NAME }}</text>
             <text class="version-tag">{{ APP_VERSION_LABEL }}</text>
           </view>
+          <view class="check-update-row">
+            <text class="check-update-btn" :class="{ 'is-busy': checking }" @tap="checkUpdate">
+              {{ checking ? '检查中…' : '检查更新' }}
+            </text>
+            <text v-if="updateHint" class="check-update-hint">{{ updateHint }}</text>
+          </view>
         </view>
 
         <!-- 链接 -->
@@ -74,6 +80,8 @@ import PageLayout from "@/components/PageLayout/index.vue";
 import { getStatusBarHeight } from "@/utils/system";
 import { APP_COMPANY, APP_VERSION_LABEL, APP_VERSION_NAME, CONTACT_EMAIL, ICP_FILING_NO } from "@/constants/appInfo";
 import { getEffectiveVersion } from "@/utils/agreementContent";
+import { appVersionApi, isNewerVersion } from "@/api/appVersion";
+import { openExternalUrl } from "@/utils/openExternal";
 
 // 协议版本取**当前生效版本**（服务端版本比包内新时以服务端为准），
 // 不用包内常量 —— 否则 App 已经拉到新政策，这里还显示旧版本号。
@@ -103,6 +111,57 @@ function copyEmail() {
     data: CONTACT_EMAIL,
     success: () => uni.showToast({ title: "邮箱已复制", icon: "none" }),
   });
+}
+
+/**
+ * 检查更新。
+ *
+ * 版本信息来自服务端（后台「App 版本与下载」录入的当前版本），
+ * 而不是包内常量 —— 包内常量是发版那一刻的快照，改不了。
+ *
+ * 提示就地展示在页面上，不用 uni.showToast：
+ * 这个页面没有 mask 遮挡，toast 也够用，但「检查中…」这种中间态
+ * 需要留在原地（toast 会自己消失），所以状态走页面内的文案。
+ */
+const checking = ref(false);
+const updateHint = ref("");
+
+async function checkUpdate() {
+  if (checking.value) return;
+  checking.value = true;
+  updateHint.value = "";
+  try {
+    const info = await appVersionApi.fetchLatest("android");
+    if (!info || !info.version_name) {
+      updateHint.value = "暂未获取到版本信息";
+      return;
+    }
+    if (!isNewerVersion(info.version_name, APP_VERSION_NAME)) {
+      updateHint.value = "已是最新版本";
+      return;
+    }
+    const size = info.file_size
+      ? `（${(info.file_size / 1024 / 1024).toFixed(1)} MB）`
+      : "";
+    const notes = info.notes ? `\n${info.notes}` : "";
+    uni.showModal({
+      title: `发现新版本 v${info.version_name}${size}`,
+      content: `${info.notes || "有新的版本可以下载。"}${notes}`,
+      confirmText: "去下载",
+      cancelText: "稍后",
+      success: (res) => {
+        if (res.confirm && info.download_url) {
+          // 交给系统浏览器 / 下载器处理安装包
+          openExternalUrl(info.download_url, "下载地址");
+        }
+      },
+    });
+    updateHint.value = `有新版本 v${info.version_name}`;
+  } catch (e) {
+    updateHint.value = "检查失败，请稍后再试";
+  } finally {
+    checking.value = false;
+  }
 }
 
 /**
@@ -239,6 +298,26 @@ function sendFeedback() {
   line-height: 1.6;
   color: #b8860b;
   background: rgba(255, 214, 102, 0.2);
+}
+.check-update-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+.check-update-btn {
+  padding: 6rpx 24rpx;
+  border-radius: 100rpx;
+  font-size: 22rpx;
+  color: rgba(254, 165, 0, 1);
+  border: 1rpx solid rgba(254, 165, 0, 0.4);
+}
+.check-update-btn.is-busy {
+  opacity: 0.6;
+}
+.check-update-hint {
+  font-size: 22rpx;
+  color: rgba(153, 153, 153, 1);
 }
 .link-list {
   margin: 0 30rpx;

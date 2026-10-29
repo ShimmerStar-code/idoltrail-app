@@ -106,9 +106,6 @@ export const HOT_CITIES: string[] = [
   "太原", "武汉", "香港", "新加坡", "东京",
 ]
 
-/** 全量国内城市（中文，用于城市选择弹窗静态兜底） */
-export const ALL_CITIES: string[] = Object.keys(CITY_ZH_TO_EN)
-
 /** 全部城市（含省份信息，用于弹窗右侧标签） */
 export interface CityMeta {
   name: string

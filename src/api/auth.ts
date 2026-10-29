@@ -1,5 +1,6 @@
 import { request } from '@/utils/request'
 import type {
+  AgreementSource,
   AppleLoginRequest,
   AppleLoginResponse,
   OneKeyLoginRequest,
@@ -101,11 +102,22 @@ export const authApi = {
     })
   },
 
-  // 签协议
-  acceptAgreement(agreementType: string, version: string): Promise<{ ok: boolean }> {
+  /**
+   * 签协议
+   *
+   * source 标记同意来源，后台合规核查用：
+   *   login          —— 登录时勾选同意（LoginModal）
+   *   privacy_popup  —— 隐私弹窗点击同意（PrivacyPopup）
+   *   agreement_page —— 协议详情页点击「同意并返回」
+   */
+  acceptAgreement(
+    agreementType: string,
+    version: string,
+    source: AgreementSource = 'agreement_page',
+  ): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('/auth/agreement', {
       method: 'POST',
-      data: { agreement_type: agreementType, version },
+      data: { agreement_type: agreementType, version, source },
     })
   },
 }

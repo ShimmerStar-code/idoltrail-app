@@ -228,9 +228,21 @@ src/
 | `.env` | 否 | **不是给 Vite 用的**，是 uniCloud 云函数的环境变量（见下） |
 
 ```bash
-VITE_API_BASE_URL=http://103.24.218.69:8081/api/v1   # .env.dev：测试服务器；必填，生产构建缺失或指向 localhost 会 fail build
-                                                # .env.prod：https://api.idoltrail.com/api/v1（v2 隔离栈）
+VITE_API_BASE_URL=https://api.idoltrail.com/api/v1   # .env.dev：当前**也指向生产 v2 隔离栈**（不是 69！）；必填，
+                                                #   生产构建缺失或指向 localhost 会 fail build
+                                                # .env.prod：https://api.idoltrail.com/api/v1（v2 隔离栈，同上）
 ```
+
+> ⚠️ **`.env.dev` 与 `.env.prod` 现在指向同一个后端**（`https://api.idoltrail.com/api/v1`，生产 v2 隔离栈）。
+> 联调时想打 69，必须**手动把 `.env.dev` 改成 `http://103.24.218.69:8081/api/v1`**。
+> 排查「设备上的 App 到底连的哪个后端」别靠记忆，**看设备上的编译产物**：
+>
+> ```bash
+> adb shell "grep -o -E 'https?://[a-zA-Z0-9.:/_-]*api[a-zA-Z0-9.:/_-]*' \
+>   /storage/emulated/0/Android/data/io.dcloud.HBuilder/apps/HBuilder/www/app-service.js | sort -u"
+> ```
+>
+> 详见 [`docs/device-push-test.md`](docs/device-push-test.md) 的 §2。
 
 开关字段的实际取值（**dev / prod 两列都要照抄当前 .env 文件**，下表随文件改动同步更新）：
 
@@ -307,8 +319,18 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
 - **服务端下发必须经 uniCloud 云函数**（官方只有 `uni-cloud-push` 扩展库），自建 Go 服务无法直连，也**不存在 AppKey**。详见 `../idoltrail-server-main/CLAUDE.md` 的 uni-push 章节。
 - 点击跳转由本端解析 `payload` 处理：`resolvePushUrl()` 支持 `payload.url` 直达，
   或 `relatedType` + `relatedId` 组合（与站内通知路径约定一致）。后端传的 `ClickURL` 会落在 `payload.url`。
-- 真机验证必须用**含 uni-push 模块的自定义基座或云打包**安装，标准 HBuilder 运行基座收不到推送。
+- 真机验证**离线通知**必须用**含 uni-push 模块的自定义基座或云打包**安装，标准 HBuilder 运行基座没有厂商通道。
+  但基座**能**取到 2.0 的 cid、能上报后端（`uni.getPushClientId` / `uni.onPushMessage` 都在），
+  所以「库里没有该设备」不能直接归因为「基座不支持」。
 - `offline:true` 还需在 DCloud 后台配置厂商通道（华为/小米/OPPO/vivo），未配置时 App 被回收后基本收不到。
+- **云函数返回 `errCode:0` ≠ 设备已收到**：它只代表任务入队。判断送达要看 logcat 里有没有
+  uni-push **2.0** 的连接建立日志、以及系统通知栏里有没有对应通知。
+- `usePush.ts` 现在**不静默失效**：`initPush()` / `getPushClientId()` / `syncPushToken()`
+  都会打出失败原因（同一原因只打一次），启动时还会打一行 `[App] push capability`。
+  排查推送先看这几行日志，不要靠猜。
+- 完整的真机联调方法、证据链与当前阻塞点见
+  **[`docs/device-push-test.md`](docs/device-push-test.md)** 与
+  **[`docs/unipush-offline.md`](docs/unipush-offline.md)**。
 - `stores/user.ts` ↔ `composables/usePush.ts` 的循环依赖已断开：后者改为
   `await import('@/stores/user')` 惰性引入。新增代码保持这个结构，不要在顶部静态 import。
 
@@ -369,6 +391,23 @@ npm run type-check   # vue-tsc --noEmit
 npm run lint         # eslint .
 npm run build:app    # App 资源构建，产物 dist/build/app
 ```
+
+### Go 后端改动的验证走 WSL
+
+本机（Windows）**没有 Go、没有 Docker**。改到 `../idoltrail-server-main`（Go 后端）后，
+编译 / vet / test / gofmt 验证一律走 WSL（Ubuntu-24.04，自带 gcc，`-race` 可用）：
+
+```bash
+wsl.exe -e bash -lc "cd '/mnt/c/Users/trunk/Desktop/shimmer-star/idoltrail/idoltrail-server-main' \
+  && export GOPROXY=https://goproxy.cn,direct GOTOOLCHAIN=auto \
+  && gofmt -l ./cmd ./config ./internal ./pkg \
+  && go vet ./... \
+  && CGO_ENABLED=1 go test -race ./... \
+  && go build ./..."
+```
+
+`GOTOOLCHAIN=auto` 会按 `go.mod`（go 1.26.1）自动下载 toolchain，WSL 自带的 1.22.2 不用管。
+完整说明与坑见服务端仓 `CLAUDE.md` 的「本地工具链：Go 编译验证走 WSL」一节。
 
 ## 构建与发布
 

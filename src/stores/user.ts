@@ -10,6 +10,7 @@ import type {
 } from '@/types/auth'
 import { authApi } from '@/api/auth'
 import { request, resetSessionExpiredNotice } from '@/utils/request'
+import { readPrivacyConsent, clearPrivacyConsent } from '@/utils/privacy'
 import { captureCurrentPage, restorePage, type PageSnapshot } from '@/utils/pages'
 import {
   getDeviceId,
@@ -67,7 +68,54 @@ export const useUserStore = defineStore('user', () => {
 
   // ── 全局隐私弹窗状态（App 首次启动 / 协议升级时置 true） ──
   const showPrivacyPopup = ref(false)
-  const privacyPopupReason = ref<'app_launch' | 'login_required' | 'privacy_event'>('app_launch')
+  /**
+   * 弹窗触发原因：
+   *   · app_launch     —— 首次启动或尚未取得同意；
+   *   · login_required —— 登录流程要求先同意；
+   *   · privacy_event  —— 用户在设置里主动查看/重签；
+   *   · policy_updated —— 服务端下发了新版本隐私政策，需要重新征求同意。
+   */
+  const privacyPopupReason = ref<'app_launch' | 'login_required' | 'privacy_event' | 'policy_updated'>('app_launch')
+
+  /**
+   * 全局浮层抑制标记：协议详情页打开期间为 true。
+   *
+   * 为什么需要它：PageLayout 在**每个页面**都挂了一份 PrivacyPopup / LoginModal 实例，
+   * 而弹窗的开关状态在 store 里是全局的。从弹窗里点《隐私政策》跳到协议详情页时，
+   * 新页面会再挂一个实例，watch 到 showPrivacyPopup 仍为 true → **同一次进入弹两遍**
+   * （用户反馈"打开 App 跳出阅读隐私政策，弹窗跳两次"）。
+   *
+   * 抑制期间：PrivacyPopup / LoginModal 都不响应 store 的打开动作；
+   * 协议页 onUnload 时解除抑制，若用户仍未同意隐私政策则重新拉起弹窗。
+   */
+  const globalOverlaySuspended = ref(false)
+
+  /**
+   * 隐私政策是否已取得同意（响应式镜像）。
+   *
+   * 初始值直接读本地 storage：老用户启动时已经是 true，App.vue 的 watch 会
+   * 立即触发"同意后的初始化"；新用户则是 false，等 PrivacyPopup 里点同意后
+   * 由 markPrivacyConsented() 置 true。
+   *
+   * 为什么要响应式：小米 / 华为应用商店的硬性要求是
+   * **用户同意隐私政策前不得收集任何个人信息、不得读取设备标识**。
+   * 而 uni-push 的 SDK 初始化（plus.push.addEventListener）会连带拉起
+   * 小米 / 华为厂商通道 SDK，它们在初始化阶段就会读取设备标识去注册通道。
+   * 因此推送初始化、会话恢复、免责声明弹窗都必须挂在这个状态之后。
+   */
+  const privacyGranted = ref(readPrivacyConsent())
+
+  function markPrivacyConsented() {
+    privacyGranted.value = true
+  }
+
+  function suspendGlobalOverlay() {
+    globalOverlaySuspended.value = true
+  }
+
+  function resumeGlobalOverlay() {
+    globalOverlaySuspended.value = false
+  }
 
   // isLoggedIn 增加 !agreementRequired 条件:
   // "半登录态"(access_token 拿到了但协议没签完)对业务页面仍按"未登录"处理,
@@ -84,7 +132,12 @@ export const useUserStore = defineStore('user', () => {
     // 不写盘会导致 401。改为:token 总是写到 storage 和内存,
     // 但 isLoggedIn 仍为 false(因为 agreementRequired=true),业务页面会按未登录处理。
     // 协议签完后,setAgreementOK() 会把 agreementRequired 关掉,isLoggedIn 自然变 true。
-    setTokens(p.access_token, p.refresh_token)
+    setTokens(
+      p.access_token,
+      p.refresh_token,
+      p.access_expires_in,
+      p.refresh_expires_in,
+    )
     setCachedUser(p.user)
     accessToken.value = p.access_token
     refreshToken.value = p.refresh_token
@@ -98,7 +151,12 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function setTokensOnly(t: AuthTokens) {
-    setTokens(t.access_token, t.refresh_token)
+    setTokens(
+      t.access_token,
+      t.refresh_token,
+      t.access_expires_in,
+      t.refresh_expires_in,
+    )
     accessToken.value = t.access_token
     refreshToken.value = t.refresh_token
     resetSessionExpiredNotice()
@@ -112,14 +170,28 @@ export const useUserStore = defineStore('user', () => {
   function setAgreementOK() {
     agreementRequired.value = false
     missingAgreements.value = []
-    // setLoginPayload 现在总是写 token 了,这里再保险写一次(协议页面可能用 in-memory token 走的)
-    if (accessToken.value && refreshToken.value) {
-      setTokens(accessToken.value, refreshToken.value)
-    }
+    // token 的权威来源是 storage（request.ts 续期成功时会就地更新它），
+    // 这里把内存副本同步过来即可。
+    //
+    // ⚠️ 不要再用内存副本回写 storage：内存是登录那一刻的快照，
+    // 而续期后 storage 里的 refresh token 已被服务端轮转（旧的立即失效），
+    // 回写会把旧 token 塞回去 → 下一次 refresh 必然失败 → 用户被强制踢下线。
+    syncTokensFromStorage()
     // 补签协议前 isLoggedIn 为 false，syncPushToken 会在入口直接 return，
     // 导致这批用户的 cid 一直不上报、推送不可达（只有下次切后台才会补报）。
     // 协议签完 isLoggedIn 已转 true，这里必须补一次。
     syncPushToken().catch(() => {})
+  }
+
+  /**
+   * 从 storage 同步 token 到内存。
+   *
+   * 由 App.vue 在 request.ts 续期成功后调用（注入式回调），
+   * 保证内存副本不会拿着已失效的旧 token。
+   */
+  function syncTokensFromStorage() {
+    accessToken.value = getAccessToken()
+    refreshToken.value = getRefreshToken()
   }
 
   // ── 登录弹窗控制 ──
@@ -232,12 +304,27 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /** PrivacyPopup 弹窗控制 */
-  function openPrivacyPopup(reason: 'app_launch' | 'login_required' | 'privacy_event' = 'app_launch') {
+  function openPrivacyPopup(
+    reason: 'app_launch' | 'login_required' | 'privacy_event' | 'policy_updated' = 'app_launch',
+  ) {
     privacyPopupReason.value = reason
     showPrivacyPopup.value = true
   }
   function closePrivacyPopup() {
     showPrivacyPopup.value = false
+  }
+
+  /**
+   * 隐私政策版本升级后作废此前的同意。
+   *
+   * 场景：启动时从服务端拉到比包内更新的隐私政策版本，用户对旧版本的同意不再成立。
+   * 这里清掉本地同意记录（含同意时间 —— 旧时间对应的是旧版本，留着会在协议页
+   * 显示成「您已于 X 同意本协议」，与当前版本对不上），并把响应式镜像置回 false，
+   * 让 App.vue 能重新拉起 PrivacyPopup 征求同意。
+   */
+  function invalidatePrivacyConsent() {
+    clearPrivacyConsent()
+    privacyGranted.value = false
   }
 
   function clear() {
@@ -262,6 +349,9 @@ export const useUserStore = defineStore('user', () => {
     useNotificationStore().reset()
     // 活动详情/列表缓存里带 is_liked 等**用户相关字段**，不清会串号
     useEventStore().invalidateUserScopedCache()
+    // 401 回跳快照也必须清：它记的是「上一个账号被踢出时想回的页面」。
+    // 不清的话 A 账号 401 → 登出 → B 账号登录，仍会被带回 A 的页面。
+    clearReturnTo()
   }
 
   // 引导会话:
@@ -412,6 +502,8 @@ export const useUserStore = defineStore('user', () => {
     loginModalOptions,
     showPrivacyPopup,
     privacyPopupReason,
+    globalOverlaySuspended,
+    privacyGranted,
     // getters
     isLoggedIn,
     // actions
@@ -419,12 +511,17 @@ export const useUserStore = defineStore('user', () => {
     setLoginPayload,
     setTokensOnly,
     setAgreementOK,
+    syncTokensFromStorage,
     requireLogin,
     notifyLoginSuccess,
     closeLoginModal,
     handleSessionExpired,
     openPrivacyPopup,
     closePrivacyPopup,
+    invalidatePrivacyConsent,
+    markPrivacyConsented,
+    suspendGlobalOverlay,
+    resumeGlobalOverlay,
     clear,
     bootstrapSession,
     loginWithPhone,

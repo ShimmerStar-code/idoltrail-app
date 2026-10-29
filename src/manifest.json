@@ -1,7 +1,7 @@
 {
     "name" : "idoltrail",
     "appid" : "__UNI__F1F9279",
-    "description" : "演唱会 / 音乐活动信息平台",
+    "description" : "演唱会、音乐节、见面会等偶像活动信息订阅平台~",
     "versionName" : "0.1.1",
     "versionCode" : "100",
     "transformPx" : false,
@@ -9,6 +9,9 @@
         "usingComponents" : true,
         "nvueStyleCompiler" : "uni-app",
         "compilerVersion" : 3,
+        "compatible" : {
+            "ignoreVersion" : true
+        },
         "splashscreen" : {
             "alwaysShowBeforeRender" : true,
             "waiting" : true,
@@ -40,6 +43,7 @@
         /* 启动图：图标资源放在 src/static/ 下，云打包时在 manifest 可视化界面替换 */
         "distribute" : {
             "android" : {
+                "label" : "idoltrail",
                 "minSdkVersion" : 21,
                 "targetSdkVersion" : 34,
                 "abiFilters" : [ "armeabi-v7a", "arm64-v8a", "x86_64" ],
@@ -95,7 +99,7 @@
                             APPLE_PRIVATE_KEY_PATH 也需就位，见后端 .env.prod。
 
                         "com.apple.developer.applesignin" : ["Default"]
-                        *//* ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
+                         ⚠️ 刻意不声明 NSUserTrackingUsageDescription：
      本 App 未接入任何广告追踪（"idfa": false，代码中无 ATT 调用）。
      声明 ATT 用途却不请求授权，是 App Store 审核的常见拒审点。 */
                 "privacyDescription" : {
@@ -122,7 +126,16 @@
                 "push" : {
                     "unipush" : {
                         "version" : "2",
-                        "offline" : true
+                        "offline" : true,
+                        "icons" : {
+                            "small" : {
+                                "xxhdpi" : "app-icons/72x72.png",
+                                "xhdpi" : "app-icons/40x40.png",
+                                "hdpi" : "app-icons/29x29.png",
+                                "mdpi" : "app-icons/20x20.png"
+                            }
+                        },
+                        "mi" : {}
                     }
                 },
                 "geolocation" : {
@@ -132,61 +145,67 @@
                 },
                 "maps" : {},
                 "oauth" : {
-                    "univerify" : {},
-                    "apple" : {}
+                    "univerify" : {}
                 },
                 "share" : {}
             },
             /* 分享说明：src/utils/share.ts 走 plus.share.sendWithSystem 调起系统分享面板，
                不依赖微信 / QQ / 微博 SDK，因此这里不需要任何 sdkConfigs 配置。
-               若日后要接三方内部分享，需在此填入各厂商 appid / appsecret。 */
-            /* 图标源图是 src/static/logo.png（1024x1024，保留原始清晰度供后续再加工），
-               下列各尺寸由它等比缩放而来，统一放在 src/static/icons/app/ 下入库。
-               刻意不用 unpackage/：那是 HBuilderX 的云打包与原生编译**产物目录**
-               （.gitignore 已忽略），图标放进去不会随仓库走，别人克隆后打包必然缺图。 */
+               若日后要接三方内部分享，需在此填入各厂商 appid / appsecret。
+			   图标说明：源图是 app-icons/1024x1024.png（1024x1024，保留原始清晰度供后续再加工），
+               下列各尺寸由它等比缩放而来。
+               放在**项目根级 app-icons/** 而不是 src/static/ 下，有两个原因：
+                 1. src/static/ 会被**原样复制进运行时包**（wgt），这些图只服务于
+                    云打包的原生图标 / 启动图，运行时一个字节都用不到；
+                    放进去等于每台设备白背 694 KB。
+                 2. 刻意不用 unpackage/res/icons/：那是 HBuilderX 的云打包与原生编译
+                    **产物目录**（.gitignore 已忽略），图标放进去不会随仓库走，
+                    别人克隆后打包必然缺图。app-icons/ 已入库，可自包含。
+               路径相对**项目根目录**解析（与 unpackage/res/icons/ 同级语义）。 */
             "icons" : {
                 "android" : {
-                    "hdpi" : "src/static/icons/app/72x72.png",
-                    "xhdpi" : "src/static/icons/app/96x96.png",
-                    "xxhdpi" : "src/static/icons/app/144x144.png",
-                    "xxxhdpi" : "src/static/icons/app/192x192.png"
+                    "hdpi" : "app-icons/72x72.png",
+                    "xhdpi" : "app-icons/96x96.png",
+                    "xxhdpi" : "app-icons/144x144.png",
+                    "xxxhdpi" : "app-icons/192x192.png"
                 },
                 "ios" : {
-                    "appstore" : "src/static/icons/app/1024x1024.png",
+                    "appstore" : "app-icons/1024x1024.png",
                     "ipad" : {
-                        "app" : "src/static/icons/app/76x76.png",
-                        "app@2x" : "src/static/icons/app/152x152.png",
-                        "notification" : "src/static/icons/app/20x20.png",
-                        "notification@2x" : "src/static/icons/app/40x40.png",
-                        "proapp@2x" : "src/static/icons/app/167x167.png",
-                        "settings" : "src/static/icons/app/29x29.png",
-                        "settings@2x" : "src/static/icons/app/58x58.png",
-                        "spotlight" : "src/static/icons/app/40x40.png",
-                        "spotlight@2x" : "src/static/icons/app/80x80.png"
+                        "app" : "app-icons/76x76.png",
+                        "app@2x" : "app-icons/152x152.png",
+                        "notification" : "app-icons/20x20.png",
+                        "notification@2x" : "app-icons/40x40.png",
+                        "proapp@2x" : "app-icons/167x167.png",
+                        "settings" : "app-icons/29x29.png",
+                        "settings@2x" : "app-icons/58x58.png",
+                        "spotlight" : "app-icons/40x40.png",
+                        "spotlight@2x" : "app-icons/80x80.png"
                     },
                     "iphone" : {
-                        "app@2x" : "src/static/icons/app/120x120.png",
-                        "app@3x" : "src/static/icons/app/180x180.png",
-                        "notification@2x" : "src/static/icons/app/40x40.png",
-                        "notification@3x" : "src/static/icons/app/60x60.png",
-                        "settings@2x" : "src/static/icons/app/58x58.png",
-                        "settings@3x" : "src/static/icons/app/87x87.png",
-                        "spotlight@2x" : "src/static/icons/app/80x80.png",
-                        "spotlight@3x" : "src/static/icons/app/120x120.png"
+                        "app@2x" : "app-icons/120x120.png",
+                        "app@3x" : "app-icons/180x180.png",
+                        "notification@2x" : "app-icons/40x40.png",
+                        "notification@3x" : "app-icons/60x60.png",
+                        "settings@2x" : "app-icons/58x58.png",
+                        "settings@3x" : "app-icons/87x87.png",
+                        "spotlight@2x" : "app-icons/80x80.png",
+                        "spotlight@3x" : "app-icons/120x120.png"
                     }
                 }
             },
             "splashscreen" : {
                 "androidStyle" : "common",
                 "android" : {
-                    "hdpi" : "src/static/icons/app/splash-750x1334.png"
+                    "hdpi" : "app-icons/splash-750x1334.png"
                 },
                 "iosStyle" : "common",
                 "ios" : {
                     "iphone" : {
-                        "portrait-750x1334" : "src/static/icons/app/splash-750x1334.png"
+                        "portrait-750x1334" : "app-icons/splash-750x1334.png"
                     }
-                }
+                },
+                "useOriginalMsgbox" : true
             }
         },
         /* uni-push 2.0 厂商通道：需要 DCloud 后台为各厂商开通后填入，

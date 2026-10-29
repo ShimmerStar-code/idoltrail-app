@@ -127,7 +127,7 @@
                 :key="ev.id"
                 :event="ev"
                 variant="flat"
-                :entryGenreCode="store.detail?.genres?.[0]?.genre_code"
+                :entryGenreCode="topGenreCode"
                 :theme-artist-id="store.detail?.id"
                 :theme-color="store.detail?.theme_color"
                 @select="toEvent"
@@ -184,6 +184,7 @@ import EventCard from "@/components/EventCard/index.vue";
 import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
 import { artistGenderLabel, artistTypeLabel } from "@/constants/artistLabels";
 import { artistRegionLabel } from "@/constants/artistCountries";
+import { genreLabel, pickTopGenre } from "@/constants/genres";
 import { zodiacOf } from "@/utils/zodiac";
 import { getArtistAvatarSrc, getDefaultAvatarSrc } from "@/utils/avatar";
 import { getNavBarMetrics } from "@/utils/system";
@@ -291,6 +292,9 @@ const subscriberText = computed(() => {
  * 等艺人在详情页会直接显示裸 ISO 码，且与偶像首页的分组标签表不一致）。
  */
 
+// ── 流派:取置信度最高的一项（信息标签与相关演出的取色共用同一份）──
+const topGenreCode = computed(() => pickTopGenre(store.detail?.genres));
+
 const infoTags = computed(() => {
   const d = store.detail;
   if (!d) return [] as { key: string; icon: string; label: string }[];
@@ -364,13 +368,14 @@ const infoTags = computed(() => {
     });
   }
 
-  // 音乐流派/风格（取第1个genre，对齐设计稿第4行左）
-  const firstGenre = d.genres?.[0]?.genre_code;
-  if (firstGenre) {
+  // 音乐流派/风格：取置信度最高的一项，并映射成中文文案
+  // （裸码 JPOP/KPOP 首页显示的是「日音/韩音」，这里必须统一）
+  const topGenre = topGenreCode.value;
+  if (topGenre) {
     list.push({
       key: "genre",
       icon: "/static/detail_icon/genre.svg",
-      label: firstGenre,
+      label: genreLabel(topGenre),
     });
   }
 
