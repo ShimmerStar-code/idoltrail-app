@@ -201,18 +201,35 @@
                     }
                 }
             },
+            /* 启动界面（云打包原生启动图）。
+               androidStyle 必须是 "default"：官方 manifest 注释原文
+               「"android":{ …Android平台启动图片配置， androidStyle值为default时生效」，
+               取 "common" 时按密度配的这组图**整个不生效**，
+               实际显示的是「通用启动界面」（自动用 app 图标 + 应用名生成）。
+
+               源图：app-icons/slash_starup.png（852x1846，粉紫渐变）。
+               官方分辨率要求：hdpi 480x762 / xhdpi 720x1242 / xxhdpi 1080x1882，
+               三张由源图 cover 缩放居中裁切生成（官方提示「切忌上传多张同尺寸启动图」，
+               且建议至少配 1080P 高分屏这张）。
+
+               ⚠️ 三档必须取**同一个**源图窗口：按各档自身比例逐档居中裁切时，
+               hdpi 的取景窗口会比另两档窄约 4 个百分点，logo 顶部会被切掉，
+               三档启动图长得不一样。现在三档统一按最大档（xxhdpi）的窗口取图。
+
+               ⚠️ iOS 侧保持 "common"：自定义启动图在 iOS 上从 2020-06-30 起
+               无法提交 App Store（官方原文），iOS 只能用通用启动界面或自定义 storyboard。 */
             "splashscreen" : {
-                "androidStyle" : "common",
+                "androidStyle" : "default",
                 "android" : {
-                    "hdpi" : "app-icons/splash-750x1334.png"
+                    "hdpi" : "app-icons/splash-android-hdpi-480x762.png",
+                    "xhdpi" : "app-icons/splash-android-xhdpi-720x1242.png",
+                    "xxhdpi" : "app-icons/splash-android-xxhdpi-1080x1882.png"
                 },
                 "iosStyle" : "common",
-                "ios" : {
-                    "iphone" : {
-                        "portrait-750x1334" : "app-icons/splash-750x1334.png"
-                    }
-                },
-                "useOriginalMsgbox" : true
+                "ios" : {},
+                /* 启动时系统导航栏背景色：配了启动图后导航栏区域容易闪白，
+                   官方说明该字段用于解决此问题。取源图底部主色 #9C5A8B。 */
+                "androidNavigationBarColor" : "#9C5A8B"
             }
         },
         /* uni-push 2.0 厂商通道：需要 DCloud 后台为各厂商开通后填入，
