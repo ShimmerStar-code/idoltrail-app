@@ -2,8 +2,8 @@
     "name" : "idoltrail",
     "appid" : "__UNI__F1F9279",
     "description" : "演唱会、音乐节、见面会等偶像活动信息订阅平台~",
-    "versionName" : "0.1.1",
-    "versionCode" : "100",
+    "versionName" : "0.1.2",
+    "versionCode" : "101",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
@@ -132,10 +132,12 @@
                                 "xxhdpi" : "app-icons/72x72.png",
                                 "xhdpi" : "app-icons/40x40.png",
                                 "hdpi" : "app-icons/29x29.png",
-                                "mdpi" : "app-icons/20x20.png"
+                                "mdpi" : "app-icons/20x20.png",
+                                "ldpi" : "unpackage/resources/__UNI__F1F9279/www/static/icons/app/18x18.png"
                             }
                         },
-                        "mi" : {}
+                        "mi" : {},
+                        "honor" : {}
                     }
                 },
                 "geolocation" : {
@@ -147,7 +149,12 @@
                 "oauth" : {
                     "univerify" : {}
                 },
-                "share" : {}
+                "share" : {
+                    "weixin" : {
+                        "appid" : "wxa5fe9cc08ce49a84",
+                        "UniversalLinks" : ""
+                    }
+                }
             },
             /* 分享说明：src/utils/share.ts 走 plus.share.sendWithSystem 调起系统分享面板，
                不依赖微信 / QQ / 微博 SDK，因此这里不需要任何 sdkConfigs 配置。
