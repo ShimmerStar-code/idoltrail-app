@@ -334,6 +334,17 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
 - `stores/user.ts` ↔ `composables/usePush.ts` 的循环依赖已断开：后者改为
   `await import('@/stores/user')` 惰性引入。新增代码保持这个结构，不要在顶部静态 import。
 
+## 消息推送逻辑（站内消息 + 系统推送）
+
+- **站内消息与系统推送共用一张 `notifications` 表，但口径完全不同**：
+  站内消息（消息中心）不限量、只限本人可见；系统推送（uni-push 通知栏）**每用户每天 2 条**
+  （`internal/service/push_quota.go`，未部署）。
+- 城市订阅**只推** `new_event` + `event_cancel`；时间/场地/信息变更只推给**活动订阅者**。
+  未发布（`DRAFT`）活动不发通知，`event_cancel` 豁免。
+- App 端「清空全部消息」依赖后端新接口 `DELETE /notifications`，
+  **后端没部署前该按钮会失败并回滚**（不会丢数据）。发布顺序见
+  **[`docs/message-push.md`](docs/message-push.md)**。
+
 ## 依赖版本锁定
 
 本项目的 Vue 版本**必须精确锁定**，不能用 `^`：

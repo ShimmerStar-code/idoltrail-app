@@ -4,6 +4,7 @@
     <view class="nav" :style="{ paddingTop: navPaddingTop + 'px' }">
       <uni-icons type="left" size="large" color="#333" @click="goBack" />
       <text class="nav-title">消息管理</text>
+      <text v-if="notifStore.list.length > 0" class="mark-all" @click="onClearAll">清空全部</text>
       <text v-if="notifStore.list.length > 0" class="mark-all" @click="notifStore.markAllRead()">全部已读</text>
     </view>
 
@@ -11,6 +12,9 @@
       scroll-y
       class="scroll-body"
       :style="{ height: scrollHeight + 'px' }"
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      @refresherrefresh="onRefresh"
       @scroll="onVirtualScroll"
       @scrolltolower="loadMore"
     >
@@ -85,6 +89,7 @@ const navPaddingTop = ref(60) // 胶囊底部 + 间距，onMounted 后精确计�
 const scrollHeight = ref(0)   // scroll-view 精确高度，微信小程序必须显式给像素值
 const currentPage = ref(1)
 const PAGE_SIZE = 20
+const refreshing = ref(false)
 
 // 窗口化渲染：消息分页 concat 后无上限，DOM 节点线性增长
 // 注意 store 实例上的 list 是解包后的数组，虚拟列表要的是 Ref，用 toRef 透一层
@@ -113,14 +118,43 @@ onLoad(async () => {
 })
 
 // 从别的页面返回：列表被清空（登出/切号）时补拉一次。
-// 列表还在时**不重拉**——重拉会把页码重置到 1，用户翻到的位置和内容就错位了。
+// 列表还在且角标与列表一致时不重拉——重拉会把页码重置到 1，用户翻到的位置和内容就错位了。
+//
+// ⚠️ 但「角标 > 列表里的未读数」说明期间来了新消息（最常见是 App 存活期间
+// 收到的离线推送：回调只在收到那一刻触发，回前台时 refreshAfterPush 只刷角标
+// 不刷列表）。这时必须重拉第 1 页，否则用户看到的是一个永远缺最新消息的列表。
 onShow(() => {
   if (!userStore.isLoggedIn) return
-  if (notifStore.list.length === 0) {
+  if (notifStore.list.length === 0 || notifStore.hasStaleUnread) {
     currentPage.value = 1
     void notifStore.fetchList(1, PAGE_SIZE)
   }
 })
+
+/** 下拉刷新：强制重拉第 1 页 */
+async function onRefresh() {
+  refreshing.value = true
+  try {
+    currentPage.value = 1
+    await notifStore.fetchList(1, PAGE_SIZE)
+    await notifStore.fetchUnreadCount()
+  } finally {
+    refreshing.value = false
+  }
+}
+
+/** 清空全部消息（含未读） */
+async function onClearAll() {
+  const res = await uni.showModal({
+    title: '清空全部消息',
+    content: '将删除全部消息（含未读），此操作不可恢复。',
+    confirmText: '清空',
+    cancelText: '取消',
+  })
+  if (!res.confirm) return
+  currentPage.value = 1
+  await notifStore.clearAll()
+}
 
 onMounted(() => {
   const metrics = getNavBarMetrics();

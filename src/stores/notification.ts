@@ -64,6 +64,22 @@ export const useNotificationStore = defineStore('notification', () => {
   })
   const hasReadNotifications = computed(() => panelList.value.some(n => n.isRead))
   /**
+   * 列表是否落后于角标（期间来了新消息）。
+   *
+   * 角标是服务端全量未读数，localUnread 只是**已加载部分**里的未读数，
+   * 所以 unreadCount > localUnread 时一定是「有还没进列表的消息」；
+   * 反过来 unreadCount <= localUnread 则一定没有新消息（已加载的部分是全量的）。
+   *
+   * 用它解决「App 存活期间收到离线推送，消息中心列表却不会更新」：
+   * refreshAfterPush 刻意不刷 list（怕把用户翻到的页码重置），
+   * 于是页面 onShow 时用这个差值判断要不要重拉第 1 页。
+   */
+  const hasStaleUnread = computed(() => {
+    if (list.value.length === 0) return false
+    const localUnread = list.value.filter(n => !n.isRead).length
+    return unreadCount.value > localUnread
+  })
+  /**
    * 消息页是否还有下一页。
    *
    * 两个条件缺一不可：
@@ -221,6 +237,39 @@ export const useNotificationStore = defineStore('notification', () => {
       panelList.value = prevPanel
       loadedCount.value += removedFromList
       total.value += removedFromList
+      uni.showToast({ title: '清空失败，请重试', icon: 'none' })
+    }
+  }
+
+  /**
+   * 清空全部消息（物理删除，含未读）。
+   *
+   * 与 clearRead 的区别：clearRead 只删已读，未读一律保留 → 清完之后角标
+   * （未读数统计所有未读）纹丝不动，用户以为功能坏了（2026-10-30 反馈）。
+   * 用户在 App 里点「清空消息」时的直觉语义就是这条，所以 UI 走的是它。
+   */
+  async function clearAll() {
+    const prevList = [...list.value]
+    const prevPanel = [...panelList.value]
+    const prevTotal = total.value
+    const prevLoaded = loadedCount.value
+    const prevUnread = unreadCount.value
+    // 乐观清空：两个列表与所有计数一并归零
+    list.value = []
+    panelList.value = []
+    total.value = 0
+    loadedCount.value = 0
+    unreadCount.value = 0
+    try {
+      await notificationApi.clearAll()
+      uni.showToast({ title: '已清空全部消息', icon: 'success' })
+    } catch {
+      // 失败回滚：清空是破坏性操作，不能只回滚一半
+      list.value = prevList
+      panelList.value = prevPanel
+      total.value = prevTotal
+      loadedCount.value = prevLoaded
+      unreadCount.value = prevUnread
       uni.showToast({ title: '清空失败，请重试', icon: 'none' })
     }
   }
@@ -384,8 +433,8 @@ export const useNotificationStore = defineStore('notification', () => {
   return {
     list, panelList, total, loadedCount, unreadCount, loading, settings,
     showNotifPrompt,
-    hasUnread, badgeText, hasReadNotifications, hasMore,
-    fetchUnreadCount, fetchList, fetchPanelList, markRead, markAllRead, clearRead,
+    hasUnread, badgeText, hasReadNotifications, hasStaleUnread, hasMore,
+    fetchUnreadCount, fetchList, fetchPanelList, markRead, markAllRead, clearRead, clearAll,
     fetchSettings, updatePushEnabled, updatePushType,
     promptIfNeeded, closeNotifPrompt,
     requestSystemNotifyPermission,

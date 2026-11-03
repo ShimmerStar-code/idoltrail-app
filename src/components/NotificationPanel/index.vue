@@ -16,7 +16,7 @@
       <text class="panel-title">消息通知</text>
       <view class="header-actions">
         <text v-if="notifStore.hasUnread" class="action-btn" @click="onMarkAllRead">全部已读</text>
-        <text v-if="notifStore.hasReadNotifications" class="action-btn secondary" @click="onClearRead">清空已读</text>
+        <text v-if="notifStore.panelList.length > 0" class="action-btn secondary" @click="onClearAll">清空全部</text>
         <uni-icons type="closeempty" size="20" color="#999" @click="emit('close')" />
       </view>
     </view>
@@ -100,8 +100,18 @@ async function onMarkAllRead() {
   await notifStore.markAllRead()
 }
 
-async function onClearRead() {
-  await notifStore.clearRead()
+// 清空全部消息（含未读）。
+// 之前这里是「清空已读」—— 只删已读记录，未读一条不动，角标纹丝不动，
+// 用户以为功能坏了。现在走 clearAll，语义与「清空消息」的直觉一致。
+async function onClearAll() {
+  const res = await uni.showModal({
+    title: '清空全部消息',
+    content: '将删除全部消息（含未读），此操作不可恢复。',
+    confirmText: '清空',
+    cancelText: '取消',
+  })
+  if (!res.confirm) return
+  await notifStore.clearAll()
 }
 
 function goToMessages() {

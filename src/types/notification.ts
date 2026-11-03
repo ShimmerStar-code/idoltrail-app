@@ -8,7 +8,23 @@ export interface Notification {
   relatedId: string
   isRead: boolean
   createdAt: string
+  /**
+   * 外发通道（服务端 notifications.channel）：
+   * none=未外发（纯站内）｜wechat=微信订阅消息｜unipush=App 系统推送。
+   * ⚠️ 后端一直是返回的，但前端一直没声明 → 字段被静默丢弃。
+   */
+  channel?: NotificationChannel
+  /** 外发投递状态：sent=成功｜failed=失败｜skipped=未投递（开关关闭/额度用尽） */
+  pushStatus?: NotificationPushStatus
+  /** 投递成功时间（ISO），仅 pushStatus=sent 时有值 */
+  deliveredAt?: string
 }
+
+/** 通知外发通道 */
+export type NotificationChannel = 'none' | 'wechat' | 'unipush'
+
+/** 通知外发投递状态 */
+export type NotificationPushStatus = 'sent' | 'failed' | 'skipped'
 
 export type NotificationType =
   | 'venue_change'   // 场地变更

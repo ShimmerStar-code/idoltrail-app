@@ -34,6 +34,16 @@ export const notificationApi = {
   clearRead: () =>
     request<{ ok: boolean; deleted: number }>('/notifications/read', { method: 'DELETE' }),
 
+  /**
+   * 清空全部消息（物理删除，含未读）。
+   *
+   * 与 clearRead 的区别：clearRead 只删已读，未读一律保留 → 清完之后角标
+   * （未读数统计所有未读）纹丝不动，用户以为功能坏了。
+   * 「清空消息」的直觉语义就是这条。
+   */
+  clearAll: () =>
+    request<{ ok: boolean; deleted: number }>('/notifications', { method: 'DELETE' }),
+
   /** 获取通知设置 */
   getSettings: () =>
     request<NotificationSettings>('/notifications/settings'),

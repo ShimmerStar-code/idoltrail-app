@@ -192,8 +192,17 @@ const accountCards = computed(() => [
 ]);
 
 const menuItems = [
+  // 消息中心（站内通知列表）：之前只能从首页铃铛面板二级进入，
+  // 离线推送到达后用户看不到新消息 —— 一级入口补上。
   {
-    label: "通知管理",
+    label: "消息中心",
+    icon: "/static/icons/notice_icon.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => guardedNav("/pages/profile/messages"),
+  },
+  {
+    label: "推送设置",
     icon: "/static/icons/notice_icon.svg",
     iconBg: "rgba(0,0,0,0.0)",
     iconColor: "#fff",
