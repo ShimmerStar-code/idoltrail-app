@@ -71,6 +71,7 @@ export const notificationTypeLabel: Record<NotificationType, string> = {
   event_cancel:  '活动取消',
   new_event:     '新活动',
   info_change:   '信息变更',
+  session_change: '场次变更',
 }
 
 /** 通知类型 → 颜色（与 messages.vue 色系保持一致） */
@@ -81,4 +82,5 @@ export const notificationTypeColor: Record<NotificationType, string> = {
   event_cancel:  'rgba(255,156,171,1)',
   new_event:     'rgba(128,219,121,1)',
   info_change:   'rgba(180,162,255,1)',
+  session_change: 'rgba(151,217,216,1)',
 }

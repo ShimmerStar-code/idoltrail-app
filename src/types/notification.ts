@@ -33,6 +33,7 @@ export type NotificationType =
   | 'event_cancel'   // 活动取消
   | 'new_event'      // 新活动
   | 'info_change'    // 活动信息变更 / 下架
+  | 'session_change' // 场次变更（新增/取消场次或演出时间点）
 
 export interface NotificationListEnvelope {
   total: number
@@ -63,4 +64,5 @@ export const DEFAULT_NOTIFICATION_TYPES: NotificationTypeSettings = {
   event_cancel: true,
   new_event: true,
   info_change: true,
+  session_change: true,
 }

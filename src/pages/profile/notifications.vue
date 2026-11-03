@@ -78,6 +78,7 @@ const TYPE_LIST: Array<{ value: NotificationType }> = [
   { value: 'event_cancel' },
   { value: 'new_event' },
   { value: 'info_change' },
+  { value: 'session_change' },
 ]
 
 const userStore = useUserStore()
@@ -91,6 +92,7 @@ const pushTypes = ref<Record<NotificationType, boolean>>({
   event_cancel: true,
   new_event: true,
   info_change: true,
+  session_change: true,
 })
 /** 防并发：上一次切换还未落库时忽略后续点击 */
 const saving = ref(false)
