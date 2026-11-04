@@ -190,43 +190,34 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 
 ### 启动图（splashscreen）
 
-Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面：
+Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面。
 
 - `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 图片比例 ≠ 屏幕比例就**必然拉伸变形**。
-  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：普通 PNG 的 1080×1882 被纵向拉伸
+  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：旧图 1080×1882 被纵向拉伸
   **1.307 倍**（2460/1882）铺满全屏，logo 与文字明显拉长 —— 这就是「启动图畸变」的根因。
-- 所以必须用 **`.9.png`（九宫格）**。官方口径（<https://uniapp.dcloud.net.cn/tutorial/app-splashscreen>）：
-  「存在很多不同分辨率的手机，导致启动图在一些不常见的设备会进行拉伸或压缩引起变形」
-  「使用.9.png的优点：1. **避免在非标准分辨率手机上缩放变形**」
-- 九宫格语义（已对照 AOSP `frameworks/base/tools/aapt2/compile/Png.cpp` 确认，勿凭记忆改）：
-  - 文件 = 内容 + 四周 **1px 标记边**（内容在 `(1,1)..(w-2,h-2)`），4 个角必须透明或纯白
-  - **顶边**黑像素 = 该**列**可水平拉伸；**左边**黑像素 = 该**行**可垂直拉伸；**支持多段不连续标记**
-  - 底边 / 右边 = padding（本项目取 0）
-  - 黑色不透明 = 拉伸标记；透明 = 固定区
-- 本项目布局：**设计稿渐变整幅铺底**，品牌图（花朵 logo + idoltrail 字样 + 标语）落在**固定区**
-  （顶边/左边的标记在固定区留透明），固定区之外的渐变落在可拉伸区 →
-  屏幕尺寸变化时被延展的是**渐变本身**（AOSP 的拉伸区是缩放固定区边缘像素，不是填纯色），
-  所以颜色连续无色带，而品牌图**逐像素不变**
-- **渐变参数取自设计交付**：`#FFE39A → #FCA8B3(30%) → #9C5B87`、方向对角（左上→右下），
-  与 `android/.../drawable/splash_background.xml`（angle=315）及 `fullscreen/*.png` 实测一致
-  （顶行左黄右粉、底行深紫，行内色差最大 144）。
-  **不要改成纯色底** —— 单独铺 `#9C5B87` 会让启动页灰暗偏暗红，与设计稿观感不符。
-- **素材来源**：`app-icons/splash-brand/<密度>/splash_brand_full.png`
-  （设计交付的 Android 启动页素材，**真透明底**，花朵 logo + idoltrail 字样 + 标语；
-  同一交付包里的 `fullscreen/*.png` 是渐变底整屏图，`android/.../drawable/splash.xml`
-  是原生 layer-list 方案 —— **后两者在 uni-app 云打包下都用不了**，原因见下）
-- **为什么不用渐变整屏图**：整屏 PNG 作为 `windowBackground` 会被按 fill 拉伸 → 变形；
-  原生的正解是 layer-list（渐变 shape 底 + 居中 bitmap），但 uni-app 云打包的
-  `windowBackground` 由 DCloud 生成，改不了原生 theme → 只能走
-  「渐变底 + 透明底品牌图 + 九宫格」这条可控路径
+- **解法：直接用设计交付的成品整屏图（普通 PNG），并让每个密度桶选该桶最常见的屏幕比例。**
+  - 残余畸变 = (屏高/屏宽) ÷ (图高/图宽) − 1，**只与比例有关，与密度桶无关**
+    （密度缩放等比，在相对畸变里抵消；真机反解：K40 上垂直 0.7640 / 水平 0.9980）。
+  - 三档映射（`app-plus.distribute.splashscreen.android` 只有 hdpi/xhdpi/xxhdpi 三档，
+    见 `uniapp-manifest-schema.json`）：
+    | 桶 | 图 | 覆盖屏幕 | 最大畸变 |
+    |----|----|---------|---------|
+    | xxhdpi | `splash_1080x2400.png`（20:9） | 1080×2340 / 2400 / 2460 / 2520、1440×3120 / 3200 | ≤5% |
+    | xhdpi | `splash_720x1440.png`（18:9） | 720×1280 / 1440 / 1600 | 11% |
+    | hdpi | `splash_480x800.png`（16:9） | 480×800 / 854 | 6.7% |
+  - Redmi K40 上：相对畸变 **1.0250**（纵向 2.5%），标志区纵横比形变 **2.4%**，
+    肉眼基本看不出（旧方案是 30.7% / 23.5%）。
+- **零像素改动是硬红线**。三张图是设计交付包 `fullscreen/` 里的**原件**，md5 锁定：
+  `d26f4f4fe168071cc0db7dd72d506a72` / `f937aba82c8de3823db284b08ae9996d` /
+  `72ac986ed852eef0c41fcff2c910f68a`。
+  `npm run check:splash` 会校验 manifest 三档路径 + 实际尺寸 + md5，任何改动直接非零退出。
+- **不要再改成 `.9.png` 或自行合成**：九宫格会把设计稿整幅插画拆成「固定区 + 拉伸区」，
+  底部插画被拉长、标志区位置漂移，效果反而更差（上一版就是这么翻车的）。
+  设计交付包 README 里「不要把整屏 PNG 直接设为 windowBackground」的警告针对的是
+  **自绘/合成**图；本方案图与屏比例本就接近，残余畸变 ≤5% 可接受。
 - `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的这组图**整个不生效**）；
-  iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）
-- 三档尺寸用官方提示值：hdpi 480×762 / xhdpi 720×1242 / xxhdpi 1080×1882
-  （官方提示「切忌上传多张同尺寸启动图」）。同密度桶的设备分辨率本来就接近这个尺寸，
-  所以每桶的拉伸量都在几百 px 内，渐变被延展的比例很小
-- 重新生成：`npm run build:splash`（需 Python + Pillow；脚本会**逐像素比对**品牌图区域、
-  并检查固定区与拉伸区交界的接缝跳变，不通过直接非零退出；同时把模拟真机铺满效果的预览图
-  输出到 `app-icons/splash-9patch/preview/`（该目录已 gitignore））
+  iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）。
+- `androidNavigationBarColor: "#9C5B87"` 取源图底部主色，防启动时导航栏闪白。
 - ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」）。
   本地运行与 `npm run build:app` 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
 
