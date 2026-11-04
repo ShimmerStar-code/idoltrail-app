@@ -188,6 +188,32 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 - `src/App.vue` 里 `uni-toast` / `uni-modal` 被提升到 `z-index: 10000`，高于所有 popup 的 9999。新增全局弹层时注意层级顺序。
 - 弹窗关闭动画结束再弹 toast 时，加 `setTimeout`（约 350–400ms）。
 
+### 启动图（splashscreen）
+
+Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面：
+
+- `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 图片比例 ≠ 屏幕比例就**必然拉伸变形**。
+  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：普通 PNG 的 1080×1882 被纵向拉伸
+  **1.307 倍**（2460/1882）铺满全屏，logo 与文字明显拉长 —— 这就是「启动图畸变」的根因。
+- 所以必须用 **`.9.png`（九宫格）**。官方口径（<https://uniapp.dcloud.net.cn/tutorial/app-splashscreen>）：
+  「存在很多不同分辨率的手机，导致启动图在一些不常见的设备会进行拉伸或压缩引起变形」
+  「使用.9.png的优点：1. **避免在非标准分辨率手机上缩放变形**」
+- 九宫格语义（已对照 AOSP `frameworks/base/tools/aapt2/compile/Png.cpp` 确认，勿凭记忆改）：
+  - 文件 = 内容 + 四周 **1px 标记边**（内容在 `(1,1)..(w-2,h-2)`），4 个角必须透明或纯白
+  - **顶边**黑像素 = 该**列**可水平拉伸；**左边**黑像素 = 该**行**可垂直拉伸；**支持多段不连续标记**
+  - 底边 / 右边 = padding（本项目取 0）
+  - 黑色不透明 = 拉伸标记；透明 = 固定区
+- 本项目布局：前景（logo + 文案）落在**固定区**（对应标记留透明），四周大片品牌纯色
+  `#9C5A8B` 落在可拉伸区 → 任意屏幕比例都只拉伸纯色，**前景逐像素不变形**
+- `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的这组图**整个不生效**）；
+  iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）
+- 三档尺寸必须**等于**官方提示值：hdpi 480×762 / xhdpi 720×1242 / xxhdpi 1080×1882
+  （官方提示「切忌上传多张同尺寸启动图」）
+- 重新生成：`npm run build:splash`（需 Python + Pillow；脚本会自检各密度档的真实分辨率下
+  前景是否逐像素不变形，不通过直接非零退出）
+- ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」）。
+  本地运行与 `npm run build:app` 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
+
 ### 页面结构
 
 - `src/pages.json` **不声明原生 tabBar**，底部导航由页面内 `<TabBar>` 自绘，切换走 `switchTabPage()`。

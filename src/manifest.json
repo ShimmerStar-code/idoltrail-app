@@ -207,23 +207,32 @@
                取 "common" 时按密度配的这组图**整个不生效**，
                实际显示的是「通用启动界面」（自动用 app 图标 + 应用名生成）。
 
-               源图：app-icons/slash_starup.png（852x1846，粉紫渐变）。
-               官方分辨率要求：hdpi 480x762 / xhdpi 720x1242 / xxhdpi 1080x1882，
-               三张由源图 cover 缩放居中裁切生成（官方提示「切忌上传多张同尺寸启动图」，
-               且建议至少配 1080P 高分屏这张）。
-
-               ⚠️ 三档必须取**同一个**源图窗口：按各档自身比例逐档居中裁切时，
-               hdpi 的取景窗口会比另两档窄约 4 个百分点，logo 顶部会被切掉，
-               三档启动图长得不一样。现在三档统一按最大档（xxhdpi）的窗口取图。
+               ⚠️ 必须用 .9.png（九宫格），不能用普通 PNG。
+               启动图是原生层资源（Activity 的 windowBackground），其 Bitmap 会被系统
+               按 fill 铺满窗口 —— 图片比例与屏幕比例不一致就必然拉伸变形。
+               实测（Redmi K40 / 1080x2460 / Android 14）：普通 PNG 的 1080x1882 被
+               纵向拉伸 2460/1882 = 1.307 倍铺满全屏，logo 与文字明显拉长。
+               官方口径（uniapp.dcloud.net.cn/tutorial/app-splashscreen）：
+               「存在很多不同分辨率的手机，导致启动图在一些不常见的设备会进行拉伸或压缩
+                 引起变形」「使用.9.png的优点：避免在非标准分辨率手机上缩放变形」。
+               九宫格布局（已对照 aapt2 tools/aapt2/compile/Png.cpp 确认）：
+                 · 文件 = 内容 + 四周 1px 标记边（内容在 (1,1)..(w-2,h-2)）
+                 · 顶边黑色标记 = 该**列**可水平拉伸；左边黑色标记 = 该**行**可垂直拉伸
+                 · 前景（logo + 文案）所在列/行留**透明**（= 固定区，逐像素不变形）
+                 · 四周大片品牌纯色 #9C5A8B 落在可拉伸区，吸收任意屏幕比例的尺寸差
+               三档尺寸按官方提示：hdpi 480x762 / xhdpi 720x1242 / xxhdpi 1080x1882
+               （官方提示「切忌上传多张同尺寸启动图」）。
+               重新生成：python scripts/build-splash.py（需 Python + Pillow，
+               脚本会自检各密度档的真实分辨率下前景是否逐像素不变形）。
 
                ⚠️ iOS 侧保持 "common"：自定义启动图在 iOS 上从 2020-06-30 起
                无法提交 App Store（官方原文），iOS 只能用通用启动界面或自定义 storyboard。 */
             "splashscreen" : {
                 "androidStyle" : "default",
                 "android" : {
-                    "hdpi" : "app-icons/splash-android-hdpi-480x762.png",
-                    "xhdpi" : "app-icons/splash-android-xhdpi-720x1242.png",
-                    "xxhdpi" : "app-icons/splash-android-xxhdpi-1080x1882.png"
+                    "hdpi" : "app-icons/splash-9patch/splash-android-hdpi-480x762.9.png",
+                    "xhdpi" : "app-icons/splash-9patch/splash-android-xhdpi-720x1242.9.png",
+                    "xxhdpi" : "app-icons/splash-9patch/splash-android-xxhdpi-1080x1882.9.png"
                 },
                 "iosStyle" : "common",
                 "ios" : {},

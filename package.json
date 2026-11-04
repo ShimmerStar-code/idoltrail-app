@@ -14,6 +14,7 @@
     "check:env": "node scripts/check-env-files.mjs",
     "check:agreements": "node scripts/check-agreements.mjs",
     "export:agreements": "node scripts/export-agreements.mjs",
+    "build:splash": "python scripts/build-splash.py",
     "type-check": "vue-tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
