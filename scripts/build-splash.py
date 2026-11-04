@@ -9,8 +9,8 @@
 
 - windowBackground 引用的 Bitmap 会被系统按 **fill** 铺满窗口 → 图片比例与屏幕比例
   不一致时必然被拉伸变形。
-- 我们的启动图原为 852x1846（比例 0.462），而主流 20:9 屏是 1080x2460（比例 0.439），
-  16:9 屏是 1080x1920（比例 0.5625） → 差 20% 以上，logo 与文字被拉长。
+- 我们早期用的是 852x1846（19.5:9）的整屏 PNG：在 16:9 屏上被横向压扁 20%，
+  在 20:9 屏上纵向拉长 3%，logo 与文字明显变形（真机实测确认）。
 
 DCloud 官方口径（https://uniapp.dcloud.net.cn/tutorial/app-splashscreen）：
 
@@ -31,29 +31,21 @@ DCloud 官方口径（https://uniapp.dcloud.net.cn/tutorial/app-splashscreen）�
 
 本脚本的布局：
 
-  - 前景（logo + 品牌名 + 标语）放在**固定区**：顶边在前景列区间留透明、其余标黑；
-    左边在前景行区间留透明、其余标黑。
-  - 四周大片**纯色**（品牌紫 #9C5A8B，取自源图底部色）落在可拉伸区 →
+  - 前景（品牌图：花朵 logo + idoltrail 字样 + 标语）放在**固定区**：
+    顶边在前景列区间留透明、其余标黑；左边在前景行区间留透明、其余标黑。
+  - 四周大片**纯色**（品牌深紫 #9C5B87）落在可拉伸区 →
     任意屏幕比例都由纯色吸收，logo 与文字**逐像素不变**。
 
-素材来源与抠图
---------------
-源图 app-icons/slash_starup.png（852x1846）是**多色渐变**背景（顶部橙黄 → 粉 →
-珊瑚 → 底部深紫），上面是花朵状 logo、品牌名与 4 行标语。
+为什么不用整屏渐变图
+--------------------
+设计交付的整屏启动图（渐变底 #FFE39A → #FCA8B3 → #9C5B87 + 居中 logo）
+**不能用九宫格**：渐变放进可拉伸区会因横向/纵向拉伸产生明显色带接缝；
+若整张图都放固定区，屏幕比例不同时又会被裁切。
 
-抠图要点（都是实测踩出来的坑，勿简化）：
-
-1. **不能用亮度/饱和度阈值**：渐变下半段接近白色，绝对阈值会把背景当前景
-   （实测裁到渐变区得到一片噪点，渲染出来完全看不出内容）。
-2. **背景估计用「降采样 → 中值滤波」**：中值滤波对细结构是低通的，
-   降采样 4 倍后文字笔画只剩 2~3px，15px 窗口中值即可把笔画整体抹掉，
-   剩下平滑渐变。分块中位色不行——会被文字本身拉偏。
-3. **内容区用硬性矩形框限定**：差分后仍有边缘噪点，若让它参与 bbox 计算，
-   bbox 会被撑到整幅宽（852 宽撑满 → 缩放基准偏大 24% → 内容整体偏小）。
-4. **孤点去除用 8 邻域计数**：形态学腐蚀会吃掉 logo 的 1~2px 细线，
-   所以只删「邻居 < 2」的孤立点，线能保住。
-5. **前景向白色提亮 12%**：源图内容是浅色系（浅粉白），放到深紫纯色底上
-   对比度不足，不提亮会看不清。
+原生的正确做法是 layer-list（渐变 shape 背景 + 居中 bitmap），
+但 uni-app 云打包的 windowBackground 由 DCloud 生成、我们改不了原生 theme，
+所以走「纯色底 + 透明底品牌图 + 九宫格」这条可控路径：
+品牌图素材见 app-icons/splash-brand/<密度>/splash_brand_full.png（真透明底，无需抠图）。
 
 依赖：Python 3 + Pillow
 用法：python scripts/build-splash.py
@@ -63,158 +55,57 @@ import os
 import sys
 
 try:
-    from PIL import Image, ImageFilter
+    from PIL import Image
 except ImportError:
     sys.exit('需要 Pillow：pip install Pillow')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICONS = os.path.join(ROOT, 'app-icons')
-SRC = os.path.join(ICONS, 'slash_starup.png')
+BRAND_DIR = os.path.join(ICONS, 'splash-brand')
 OUT_DIR = os.path.join(ICONS, 'splash-9patch')
+PREVIEW_DIR = os.path.join(OUT_DIR, 'preview')
 
-BRAND = (156, 90, 139)          # #9C5A8B，取自源图底部深紫（同时用作 androidNavigationBarColor）
-BRAND_HEX = '#9C5A8B'
+# 品牌深紫（设计稿渐变的末端色，同时用作 androidNavigationBarColor）
+BRAND = (156, 91, 135)
+BRAND_HEX = '#9C5B87'
 
-# 三档：文件名尺寸必须等于官方提示尺寸（hdpi 480x762 / xhdpi 720x1242 / xxhdpi 1080x1882）
+# (启动图密度桶, 官方提示尺寸, 素材密度桶, 文件名)
+# 官方提示尺寸：hdpi 480x762 / xhdpi 720x1242 / xxhdpi 1080x1882
+# （官方提示「切忌上传多张同尺寸启动图」）
 TIERS = [
-    ('hdpi', 480, 762, 'splash-android-hdpi-480x762.9.png'),
-    ('xhdpi', 720, 1242, 'splash-android-xhdpi-720x1242.9.png'),
-    ('xxhdpi', 1080, 1882, 'splash-android-xxhdpi-1080x1882.9.png'),
+    ('hdpi', 480, 762, 'hdpi', 'splash-android-hdpi-480x762.9.png'),
+    ('xhdpi', 720, 1242, 'xhdpi', 'splash-android-xhdpi-720x1242.9.png'),
+    ('xxhdpi', 1080, 1882, 'xxhdpi', 'splash-android-xxhdpi-1080x1882.9.png'),
 ]
 
-# 源图内容区（由前景行/列聚类实测得出，带余量）
-SEGMENTS = [
-    ('LOGO', 255, 195, 615, 515),     # 花朵状图形 logo
-    ('BRAND', 245, 495, 605, 630),    # 品牌名（一行）
-    ('COPY', 160, 665, 815, 1015),    # 标语（4 行）
-]
-
-CONTENT_W_RATIO = 0.72      # 内容整体宽度 / 内容区宽度
+CONTENT_W_RATIO = 0.62      # 品牌图宽度 / 内容宽
 PAD_RATIO = 0.065           # 固定区四周留白 / 内容宽
-BG_DS = 4                   # 背景估计降采样倍数
-BG_MEDIAN = 15              # 降采样后的中值滤波窗口（抹掉文字笔画）
-BG_BLUR = 3
-ALPHA_LO, ALPHA_HI = 10, 26     # 软 alpha 阈值（最大通道差）
-ALPHA_MIN = 12                 # 判定「有内容」的最小 alpha
-GAMMA = 0.6                    # alpha gamma（<1 → 提升中间调的实心度）
-WHITEN = 0.12                  # 前景向白色提亮比例（保证深紫底上可读）
+ALPHA_CROP = 8              # 裁掉透明边时用的 alpha 阈值
 
 
-def build_background_estimate(src):
-    """背景估计：降采样 → 中值滤波抹掉细结构 → 放大回原尺寸。"""
-    W, H = src.size
-    small = src.resize((max(1, W // BG_DS), max(1, H // BG_DS)), Image.BOX)
-    small = small.filter(ImageFilter.MedianFilter(BG_MEDIAN))
-    small = small.filter(ImageFilter.GaussianBlur(BG_BLUR))
-    return small.resize((W, H), Image.BICUBIC).load()
-
-
-def extract_region(src, bgpx, box):
-    """按背景差分抠出前景，返回 RGBA（软 alpha + gamma，保留原像素颜色）。"""
-    x0, y0, x1, y1 = box
-    im = Image.new('RGBA', (x1 - x0 + 1, y1 - y0 + 1), (0, 0, 0, 0))
-    spx, ipx = src.load(), im.load()
-    for y in range(y0, y1 + 1):
-        for x in range(x0, x1 + 1):
-            p = spx[x, y]
-            b = bgpx[x, y]
-            d = max(abs(p[0] - b[0]), abs(p[1] - b[1]), abs(p[2] - b[2]))
-            if d <= ALPHA_LO:
-                continue
-            t = min(1.0, (d - ALPHA_LO) / (ALPHA_HI - ALPHA_LO)) ** GAMMA
-            a = int(t * 255)
-            if a <= ALPHA_MIN:
-                continue
-            ipx[x - x0, y - y0] = (p[0], p[1], p[2], a)
-    return im
-
-
-def remove_isolated(im):
-    """删除 8 邻域内前景数 < 2 的孤立点（去噪点，不伤 logo 细线）。"""
-    px = im.load()
-    W, H = im.size
-    drop = []
-    for y in range(H):
-        for x in range(W):
-            if px[x, y][3] <= ALPHA_MIN:
-                continue
-            n = 0
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dx == 0 and dy == 0:
-                        continue
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < W and 0 <= ny < H and px[nx, ny][3] > ALPHA_MIN:
-                        n += 1
-            if n < 2:
-                drop.append((x, y))
-    for x, y in drop:
-        px[x, y] = (0, 0, 0, 0)
-    return im
-
-
-def alpha_bbox(im):
-    """前景紧致 bbox。"""
+def load_brand(bucket):
+    """读取透明底品牌图并裁掉透明边。"""
+    path = os.path.join(BRAND_DIR, bucket, 'splash_brand_full.png')
+    im = Image.open(path).convert('RGBA')
     px = im.load()
     W, H = im.size
     xs, ys = [], []
     for y in range(H):
         for x in range(W):
-            if px[x, y][3] > ALPHA_MIN:
+            if px[x, y][3] > ALPHA_CROP:
                 xs.append(x)
                 ys.append(y)
     if not xs:
-        return None
-    return min(xs), min(ys), max(xs), max(ys)
+        sys.exit(f'品牌图没有内容：{path}')
+    bb = (min(xs), min(ys), max(xs), max(ys))
+    return im.crop(bb), bb
 
 
-def compose_content(src, bgpx):
-    """在源图坐标系里拼出「纯内容层」，保持各元素的原始相对位置。"""
-    W, H = src.size
-    canvas = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    for name, x0, y0, x1, y1 in SEGMENTS:
-        region = extract_region(src, bgpx, (x0, y0, x1, y1))
-        region = remove_isolated(region)
-        bb = alpha_bbox(region)
-        if bb is None:
-            print(f'  [{name}] 抠取为空，跳过')
-            continue
-        kept = sum(1 for p in region.getdata() if p[3] > 0)
-        print(f'  [{name}] 抠到 {kept} px，源图 x[{x0 + bb[0]},{x0 + bb[2]}] '
-              f'y[{y0 + bb[1]},{y0 + bb[3]}]')
-        region = region.crop(bb)
-        canvas.paste(region, (x0 + bb[0], y0 + bb[1]), region)
-    return canvas
-
-
-def whiten(layer, ratio):
-    """前景向白色提亮（深紫底上更清晰）。"""
-    px = layer.load()
-    W, H = layer.size
-    for y in range(H):
-        for x in range(W):
-            r, g, b, a = px[x, y]
-            if a == 0:
-                continue
-            px[x, y] = (
-                int(r + (255 - r) * ratio),
-                int(g + (255 - g) * ratio),
-                int(b + (255 - b) * ratio),
-                a,
-            )
-    return layer
-
-
-def build_tier(content_layer, content_w, content_h, filename):
-    """把内容层等比缩放后贴到品牌纯色底上，生成 .9.png。"""
-    bb = alpha_bbox(content_layer)
-    assert bb is not None, '内容层为空'
-    cw = bb[2] - bb[0] + 1
-    ch = bb[3] - bb[1] + 1
-
-    k = content_w * CONTENT_W_RATIO / cw
-    scaled = content_layer.crop(bb).resize(
-        (max(1, int(cw * k)), max(1, int(ch * k))), Image.LANCZOS)
+def build_tier(brand, content_w, content_h, filename):
+    """品牌图等比缩放后贴到纯色底上，生成 .9.png。"""
+    k = content_w * CONTENT_W_RATIO / brand.size[0]
+    scaled = brand.resize((max(1, int(brand.size[0] * k)), max(1, int(brand.size[1] * k))),
+                          Image.LANCZOS)
 
     fw, fh = content_w + 2, content_h + 2
     canvas = Image.new('RGBA', (fw, fh), (0, 0, 0, 0))
@@ -227,11 +118,10 @@ def build_tier(content_layer, content_w, content_h, filename):
     fy = (content_h - scaled.size[1]) // 2
     canvas.paste(scaled, (fx + 1, fy + 1), scaled)
 
-    sb = alpha_bbox(scaled)
-    fg_left = fx + sb[0]
-    fg_right = fx + sb[2]
-    fg_top = fy + sb[1]
-    fg_bottom = fy + sb[3]
+    fg_left = fx
+    fg_right = fx + scaled.size[0] - 1
+    fg_top = fy
+    fg_bottom = fy + scaled.size[1] - 1
 
     pad = int(content_w * PAD_RATIO)
     c0 = max(0, fg_left - pad)
@@ -362,36 +252,37 @@ CHECKS = {
                (1080, 2640), (1440, 3200)],
 }
 
+# 预览输出（模拟铺满真机效果，给人工看）
+PREVIEWS = [
+    ('xxhdpi', 1080, 2460, 'preview-1080x2460.png'),
+    ('xxhdpi', 1080, 1920, 'preview-1080x1920.png'),
+    ('xhdpi', 720, 1280, 'preview-720x1280.png'),
+]
+
 
 def main():
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
-    if not os.path.exists(SRC):
-        sys.exit(f'缺少源图：{SRC}')
     os.makedirs(OUT_DIR, exist_ok=True)
-    src = Image.open(SRC).convert('RGB')
-    print(f'源图 {src.size}，品牌色 {BRAND_HEX}')
-
-    bgpx = build_background_estimate(src)
-    content_layer = compose_content(src, bgpx)
-    content_layer = whiten(content_layer, WHITEN)
-    bb = alpha_bbox(content_layer)
-    assert bb is not None, '内容层为空'
-    print(f'内容层 bbox x[{bb[0]},{bb[2]}] y[{bb[1]},{bb[3]}] '
-          f'({bb[2]-bb[0]+1}x{bb[3]-bb[1]+1})')
+    os.makedirs(PREVIEW_DIR, exist_ok=True)
+    print(f'品牌底色 {BRAND_HEX}（设计稿渐变末端色）')
 
     failed = False
-    for tier, fw_expect, fh_expect, filename in TIERS:
+    contents = {}
+    for tier, fw_expect, fh_expect, bucket, filename in TIERS:
+        brand, _ = load_brand(bucket)
         content_w, content_h = fw_expect - 2, fh_expect - 2
-        path, size, fixed = build_tier(content_layer, content_w, content_h, filename)
+        path, size, fixed = build_tier(brand, content_w, content_h, filename)
         im = Image.open(path)
         assert im.size == (fw_expect, fh_expect), f'{filename} 尺寸 {im.size} != 官方提示 {(fw_expect, fh_expect)}'
         print(f'\n[{tier}] {filename}  文件 {im.size[0]}x{im.size[1]}（内容 {content_w}x{content_h}）')
-        print(f'      前景 {size[0]}x{size[1]}  固定列 [{fixed[0]},{fixed[1]}]  固定行 [{fixed[2]},{fixed[3]}]')
+        print(f'      品牌图 {brand.size[0]}x{brand.size[1]} → 前景 {size[0]}x{size[1]}  '
+              f'固定列 [{fixed[0]},{fixed[1]}] 固定行 [{fixed[2]},{fixed[3]}]')
 
         content, xdivs, ydivs, fw, fh = parse_divs(path)
+        contents[tier] = (content, xdivs, ydivs)
         bb2 = fg_bbox(content)
         if bb2 is None:
             print('      [FAIL] 没有前景像素')
@@ -422,6 +313,13 @@ def main():
                   f'（源 {fx1-fx0+1}x{fy1-fy0+1}）{"不变形" if same else "变形!"}')
             if not same:
                 failed = True
+
+    for tier, tw, th, name in PREVIEWS:
+        content, xdivs, ydivs = contents[tier]
+        out = render(content, xdivs, ydivs, tw, th)
+        p = os.path.join(PREVIEW_DIR, name)
+        out.convert('RGB').save(p, 'PNG')
+        print(f'预览 {p}')
 
     print('\n' + ('[FAIL] 有检查未通过' if failed else '[OK] 全部通过：所有目标分辨率下前景逐像素不变形'))
     return 1 if failed else 0

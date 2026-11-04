@@ -238,7 +238,7 @@
                 "ios" : {},
                 /* 启动时系统导航栏背景色：配了启动图后导航栏区域容易闪白，
                    官方说明该字段用于解决此问题。取源图底部主色 #9C5A8B。 */
-                "androidNavigationBarColor" : "#9C5A8B"
+                "androidNavigationBarColor" : "#9C5B87"
             }
         },
         /* uni-push 2.0 厂商通道：需要 DCloud 后台为各厂商开通后填入，

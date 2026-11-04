@@ -203,14 +203,24 @@ Android 启动图是**原生层**资源（Activity 的 `windowBackground`），�
   - **顶边**黑像素 = 该**列**可水平拉伸；**左边**黑像素 = 该**行**可垂直拉伸；**支持多段不连续标记**
   - 底边 / 右边 = padding（本项目取 0）
   - 黑色不透明 = 拉伸标记；透明 = 固定区
-- 本项目布局：前景（logo + 文案）落在**固定区**（对应标记留透明），四周大片品牌纯色
-  `#9C5A8B` 落在可拉伸区 → 任意屏幕比例都只拉伸纯色，**前景逐像素不变形**
+- 本项目布局：前景（品牌图：花朵 logo + idoltrail 字样 + 标语）落在**固定区**（对应标记留透明），
+  四周大片品牌纯色 `#9C5B87`（设计稿渐变末端色，同时用作 `androidNavigationBarColor`）
+  落在可拉伸区 → 任意屏幕比例都只拉伸纯色，**前景逐像素不变形**
+- **素材来源**：`app-icons/splash-brand/<密度>/splash_brand_full.png`
+  （设计交付的 Android 启动页素材，**真透明底**，花朵 logo + idoltrail 字样 + 标语；
+  同一交付包里的 `fullscreen/*.png` 是渐变底整屏图，`android/.../drawable/splash.xml`
+  是原生 layer-list 方案 —— **两者在 uni-app 云打包下都用不了**，原因见下）
+- **为什么不用渐变整屏图**：渐变放进九宫格的可拉伸区会因拉伸产生明显色带接缝；
+  整张图都放固定区则屏幕比例不同时被裁切。原生正解是 layer-list
+  （渐变 shape 底 + 居中 bitmap），但 uni-app 云打包的 `windowBackground` 由 DCloud 生成，
+  改不了原生 theme → 只能走「纯色底 + 透明底品牌图 + 九宫格」这条可控路径
 - `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的这组图**整个不生效**）；
   iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）
 - 三档尺寸必须**等于**官方提示值：hdpi 480×762 / xhdpi 720×1242 / xxhdpi 1080×1882
   （官方提示「切忌上传多张同尺寸启动图」）
 - 重新生成：`npm run build:splash`（需 Python + Pillow；脚本会自检各密度档的真实分辨率下
-  前景是否逐像素不变形，不通过直接非零退出）
+  前景是否逐像素不变形，不通过直接非零退出，并把模拟真机铺满效果的预览图输出到
+  `app-icons/splash-9patch/preview/`（该目录已 gitignore））
 - ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」）。
   本地运行与 `npm run build:app` 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
 
