@@ -74,7 +74,7 @@
           <view v-else>
             <view class="my-head">
               <text class="my-label">我的{{ periodLabel }}排名</text>
-              <text class="my-stars">★ {{ me?.star_coins ?? 0 }} 星币</text>
+              <text class="my-stars">★ {{ me?.star_coins ?? 0 }} {{ starLabel }}</text>
             </view>
             <view class="my-rank">
               <text class="my-rank__num">#{{ myRank }}</text>
@@ -159,7 +159,7 @@
               </view>
               <view class="row__right">
                 <text class="row__stars">★ {{ item.star_coins }}</text>
-                <text class="row__unit">星币</text>
+                <text class="row__unit">{{ starLabel }}</text>
               </view>
             </view>
           </view>
@@ -209,13 +209,13 @@
             <view class="card__stats">
               <view class="card__stat">
                 <text class="card__stat__num">{{ cardProfile.stats.adopted_count }}</text>
-                <text class="card__stat__label">收录演出</text>
+                <text class="card__stat__label">累计收录</text>
               </view>
               <view class="card__stat">
                 <text class="card__stat__num card__stat__num--gold">{{
                   cardProfile.stats.star_coins
                 }}</text>
-                <text class="card__stat__label">星币</text>
+                <text class="card__stat__label">累计星币</text>
               </view>
               <view class="card__stat">
                 <text class="card__stat__num card__stat__num--rank">{{ cardRankText }}</text>
@@ -347,6 +347,15 @@ const periodLabel = computed(() => {
   if (period.value === 'month') return '本月'
   return '本周'
 })
+
+/**
+ * 星币口径标签。
+ *
+ * 榜单里的 star_coins 是**按周期派生**的（条数 × 10），不是账户里的累计值；
+ * 贡献者卡片里的 star_coins 才是 user_profiles 的真实累计。
+ * 两个数放在一起看时必须区分，否则用户会以为榜单算错了。
+ */
+const starLabel = computed(() => (period.value === 'all' ? '累计星币' : '本期星币'))
 
 /** 追赶文案：第一名给鼓励，其余给「还差几条」 */
 const chaseText = computed(() => {

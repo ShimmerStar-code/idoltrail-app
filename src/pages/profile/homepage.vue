@@ -61,12 +61,12 @@
           <view class="stats-card">
             <view class="stat">
               <text class="stat__num">{{ profile.stats.adopted_count }}</text>
-              <text class="stat__label">收录演出</text>
+              <text class="stat__label">累计收录</text>
             </view>
             <view class="stat__divider" />
             <view class="stat">
               <text class="stat__num stat__num--gold">{{ profile.stats.star_coins }}</text>
-              <text class="stat__label">星币</text>
+              <text class="stat__label">累计星币</text>
             </view>
             <view class="stat__divider" />
             <view class="stat">
