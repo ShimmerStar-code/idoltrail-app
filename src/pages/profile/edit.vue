@@ -111,6 +111,29 @@
             />
           </view>
 
+          <!-- 兴趣标签：多选，最多 10 个 -->
+          <view class="field-card field-card--block">
+            <view class="field-label-row">
+              <text class="field-label">兴趣标签：</text>
+              <text class="field-hint">{{ selectedInterests.length }}/{{ INTERESTS_MAX_COUNT }}</text>
+            </view>
+            <view class="tag-wrap">
+              <view
+                v-for="tag in INTEREST_TAGS"
+                :key="tag.code"
+                class="tag"
+                :class="{ 'tag--on': isInterestPicked(tag.code) }"
+                :style="isInterestPicked(tag.code) ? { background: tag.color, borderColor: tag.color } : {}"
+                @click="toggleInterest(tag.code)"
+              >
+                <text class="tag__text" :class="{ 'tag__text--on': isInterestPicked(tag.code) }">{{
+                  tag.label
+                }}</text>
+              </view>
+            </view>
+            <text class="field-tip">选你平时爱听的风格，帮我们推荐更对的演出</text>
+          </view>
+
           <!-- 其它 -->
           <view class="field-card">
             <text class="field-label">其它：</text>
@@ -157,6 +180,7 @@ import { userApi } from "@/api/user";
 import { getNavBarMetrics } from "@/utils/system";
 import { getUserAvatarSrc } from "@/utils/avatar";
 import PageLayout from "@/components/PageLayout/index.vue";
+import { INTEREST_TAGS, INTERESTS_MAX_COUNT } from "@/constants/interests";
 const GENDER_LABELS = ["保密", "男", "女"];
 
 const userStore = useUserStore();
@@ -194,6 +218,35 @@ const form = ref({
 // 0|1|2，导致 picker @change 里 `+e.detail.value`(number) 赋不进去。
 // 提交时再 cast 回 0|1|2（见 save()）。
 const genderIndex = ref<number>(user.value?.gender ?? 0);
+
+/** 已选兴趣标签（event_genre code） */
+const selectedInterests = ref<string[]>([...(user.value?.interests ?? [])]);
+/** 用户是否动过标签：只有动过才提交，避免把没加载到的旧值当成「清空」写回去 */
+const interestsDirty = ref(false);
+
+function isInterestPicked(code: string): boolean {
+  return selectedInterests.value.indexOf(code) >= 0;
+}
+
+/**
+ * 勾选 / 取消一个兴趣标签。
+ *
+ * 超过上限时给提示而不是静默丢弃 —— 用户已经点了，
+ * 静默不生效会被当成「App 卡了」。
+ */
+function toggleInterest(code: string) {
+  const idx = selectedInterests.value.indexOf(code);
+  if (idx >= 0) {
+    selectedInterests.value.splice(idx, 1);
+  } else {
+    if (selectedInterests.value.length >= INTERESTS_MAX_COUNT) {
+      uni.showToast({ title: `最多选 ${INTERESTS_MAX_COUNT} 个`, icon: "none" });
+      return;
+    }
+    selectedInterests.value.push(code);
+  }
+  interestsDirty.value = true;
+}
 
 /**
  * picker 的 change 事件处理放在 script 而不是模板里：
@@ -242,10 +295,24 @@ async function save() {
       birthday: form.value.birthday || undefined,
       nationality: form.value.nationality.trim() || undefined,
       bio: form.value.bio.trim() || undefined,
+      // 只在用户动过标签时提交：未动过时传空数组会被后端当成「清空标签」
+      ...(interestsDirty.value ? { interests: selectedInterests.value } : {}),
     });
 
     const fresh = await userApi.me();
     userStore.setUser(fresh);
+
+    // 兜底：后端还没上 interests 支持时会把这段请求静默忽略，
+    // 用户看到的现象是「保存成功但标签又没了」—— 直接说明原因，别让人以为 App 坏了。
+    if (
+      interestsDirty.value &&
+      selectedInterests.value.length > 0 &&
+      (fresh.interests?.length ?? 0) === 0
+    ) {
+      uni.showToast({ title: "标签需服务端更新后生效", icon: "none" });
+      setTimeout(() => uni.navigateBack(), 1200);
+      return;
+    }
 
     uni.showToast({ title: "保存成功", icon: "success" });
     setTimeout(() => uni.navigateBack(), 800);
@@ -366,6 +433,49 @@ async function save() {
 
 .readonly-card {
   opacity: 0.65;
+}
+
+/* 兴趣标签多选 */
+.field-card--block {
+  display: block;
+}
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.field-hint {
+  font-size: 22rpx;
+  color: #999;
+}
+.field-tip {
+  display: block;
+  font-size: 22rpx;
+  color: #aaa;
+  margin-top: 18rpx;
+}
+.tag-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+.tag {
+  padding: 10rpx 22rpx;
+  border-radius: 30rpx;
+  border: 1rpx solid rgba(236, 236, 236, 1);
+  background: #f7f8fa;
+}
+.tag--on {
+  border-width: 1rpx;
+}
+.tag__text {
+  font-size: 24rpx;
+  color: #666;
+}
+.tag__text--on {
+  color: #fff;
+  font-weight: 500;
 }
 
 .confirm-btn {

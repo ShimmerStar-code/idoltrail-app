@@ -18,15 +18,26 @@
               mode="aspectFit"
             />
           </view>
-          <view class="notice-btn" @click="toggleNotifPanel">
-            <image
-              class="notice-icon"
-              src="/static/icons/notice.svg"
-              mode="aspectFit"
-            />
-            <!-- 未读数 badge -->
-            <view v-if="notifStore.hasUnread" class="notice-badge">
-              <text class="notice-badge-text">{{ notifStore.badgeText }}</text>
+          <view class="header-actions">
+            <!-- 贡献榜入口：让用户从首页一眼就能进排行榜 -->
+            <view class="rank-btn" @click="goRanking">
+              <image
+                class="rank-btn__icon"
+                src="/static/icons/rank_icon.svg"
+                mode="aspectFit"
+              />
+              <text class="rank-btn__text">贡献榜</text>
+            </view>
+            <view class="notice-btn" @click="toggleNotifPanel">
+              <image
+                class="notice-icon"
+                src="/static/icons/notice.svg"
+                mode="aspectFit"
+              />
+              <!-- 未读数 badge -->
+              <view v-if="notifStore.hasUnread" class="notice-badge">
+                <text class="notice-badge-text">{{ notifStore.badgeText }}</text>
+              </view>
             </view>
           </view>
         </view>
@@ -630,6 +641,10 @@ const genres = GENRES;
 function goEventList() {
   uni.navigateTo({ url: "/pages/event/list" });
 }
+/** 贡献排行榜 */
+function goRanking() {
+  uni.navigateTo({ url: "/pages/profile/ranking" });
+}
 function toDetail(id: number) {
   uni.navigateTo({ url: `/pages/event/detail?id=${id}` });
 }
@@ -688,6 +703,30 @@ function goTypeList(i: number) {
   width: 24rpx;
   height: 12rpx;
   margin-left: 4rpx;
+}
+/* 右侧操作区：贡献榜入口 + 通知铃铛 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.rank-btn {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: 36rpx;
+  background: rgba(254, 165, 0, 0.12);
+}
+.rank-btn__icon {
+  width: 30rpx;
+  height: 30rpx;
+}
+.rank-btn__text {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #fea500;
 }
 .search-bar {
   background: rgba(248, 248, 248, 1);

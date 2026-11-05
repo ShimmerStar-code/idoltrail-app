@@ -27,8 +27,13 @@ export const socialApi = {
 }
 
 export const publicUserApi = {
-  /** 贡献者卡片：成绩 + 个性化资料 + 社交主页链接 + 收录过的演出 */
-  profile(userId: number): Promise<PublicUserProfile> {
+  /**
+   * 贡献者卡片：成绩 + 个性化资料 + 社交主页链接 + 收录过的演出
+   *
+   * userId 传字符串：用户 id 超过 Number.MAX_SAFE_INTEGER，
+   * 转成 number 会丢精度，查出来就是「用户不存在或已不可见」。
+   */
+  profile(userId: string): Promise<PublicUserProfile> {
     return request<PublicUserProfile>(`/public/users/${userId}/profile`)
   },
 }

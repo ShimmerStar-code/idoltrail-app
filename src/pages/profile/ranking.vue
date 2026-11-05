@@ -4,7 +4,7 @@
   入口:  个人中心「贡献榜」/ 上传情报页「贡献榜」
 
   作用: 肯定「上传情报（众包演出线索）」的用户 —— 情报被运营核实收录后计入贡献，
-        排名次、给出「再收录 N 条即可超过上一名」的追赶目标，
+        排名次、给出「感谢您的分享」的反馈，
         让继续上传变成一件有即时反馈的事。
 
   布局（自上而下）:
@@ -13,7 +13,7 @@
     3. 我的贡献卡(名次 / 收录条数 / 星币 / 追赶文案 / 进度条 / 去上传)
     4. 前三名领奖台
     5. 其余名次列表(「我」的行高亮)
-    6. 底部固定「上传情报 · 冲榜」按钮
+    6. 底部固定「分享新情报」按钮
     7. 规则弹窗(uni-popup)
 
   口径（与后端一致, 不要在页面里另算一套）:
@@ -37,7 +37,6 @@
         <!-- Hero -->
         <view class="hero">
           <text class="hero-title">贡献榜</text>
-          <text class="hero-sub">你看到的每一场演出，都有人先发现了它</text>
           <view class="tabs">
             <view
               v-for="t in PERIODS"
@@ -66,16 +65,20 @@
           <view v-else-if="!onBoard" class="my-empty">
             <text class="my-empty__title">你还没有上榜记录</text>
             <text class="my-empty__desc"
-              >上传第一条情报，运营核实收录后即可上榜，贡献会计入榜单位次</text
+              >分享第一条情报，运营核实收录后就能上榜</text
             >
-            <button class="my-btn" @click="goSubmit">上传第一条情报</button>
+            <button class="my-btn" @click="goSubmit">分享第一条情报</button>
           </view>
 
           <!-- 已上榜 -->
           <view v-else>
             <view class="my-head">
               <text class="my-label">我的{{ periodLabel }}排名</text>
-              <text class="my-stars">★ {{ me?.star_coins ?? 0 }} {{ starLabel }}</text>
+              <!-- 星币只用图标表示，不再写「累计星币 / 本期星币」这类标签 -->
+              <view class="my-stars">
+                <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
+                <text class="my-stars__num">{{ me?.star_coins ?? 0 }}</text>
+              </view>
             </view>
             <view class="my-rank">
               <text class="my-rank__num">#{{ myRank }}</text>
@@ -94,7 +97,7 @@
               <view class="my-bar__fill" :style="{ width: progress + '%' }" />
             </view>
 
-            <button class="my-btn my-btn--flat" @click="goSubmit">再上传一条情报</button>
+            <button class="my-btn my-btn--flat" @click="goSubmit">再分享一条情报</button>
           </view>
         </view>
 
@@ -159,8 +162,8 @@
                 <text class="row__sub">{{ item.adopted_count }} 条情报被收录</text>
               </view>
               <view class="row__right">
-                <text class="row__stars">★ {{ item.star_coins }}</text>
-                <text class="row__unit">{{ starLabel }}</text>
+                <image class="coin-icon coin-icon--row" src="/static/icons/star_coin.svg" mode="aspectFit" />
+                <text class="row__stars">{{ item.star_coins }}</text>
               </view>
             </view>
           </view>
@@ -179,7 +182,7 @@
 
       <!-- 底部 CTA -->
       <view class="cta-bar">
-        <button class="cta-btn" @click="goSubmit">上传情报 · 冲榜</button>
+        <button class="cta-btn" @click="goSubmit">分享新情报</button>
       </view>
 
       <!-- 贡献者卡片（点榜单行打开） -->
@@ -196,6 +199,16 @@
             <view class="card__ident">
               <text class="card__name">{{ cardName }}</text>
               <text v-if="cardBio" class="card__bio">{{ cardBio }}</text>
+              <view v-if="cardTags.length" class="card__tags">
+                <view
+                  v-for="tag in cardTags"
+                  :key="tag.code"
+                  class="card__tag"
+                  :style="{ background: tag.color + '1A', borderColor: tag.color }"
+                >
+                  <text class="card__tag__text" :style="{ color: tag.color }">{{ tag.label }}</text>
+                </view>
+              </view>
             </view>
           </view>
 
@@ -209,19 +222,26 @@
             <!-- 成绩 -->
             <view class="card__stats">
               <view class="card__stat">
-                <text class="card__stat__num">{{ cardProfile.stats.adopted_count }}</text>
-                <text class="card__stat__label">累计收录</text>
+                <text class="card__stat__num">{{ cardProfile.stats.submitted_count ?? 0 }}</text>
+                <text class="card__stat__label">上传情报</text>
               </view>
               <view class="card__stat">
-                <text class="card__stat__num card__stat__num--gold">{{
-                  cardProfile.stats.star_coins
-                }}</text>
-                <text class="card__stat__label">累计星币</text>
+                <text class="card__stat__num">{{ cardProfile.stats.adopted_count ?? 0 }}</text>
+                <text class="card__stat__label">被采纳</text>
+              </view>
+              <view class="card__stat">
+                <text class="card__stat__num card__stat__num--gold">{{ cardAdoptionText }}</text>
+                <text class="card__stat__label">采纳率</text>
               </view>
               <view class="card__stat">
                 <text class="card__stat__num card__stat__num--rank">{{ cardRankText }}</text>
                 <text class="card__stat__label">总榜名次</text>
               </view>
+            </view>
+
+            <view v-if="cardProfile.stats.star_coins > 0" class="card__coins">
+              <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
+              <text class="card__coins__num">{{ cardProfile.stats.star_coins }}</text>
             </view>
 
             <!-- 社交主页链接（引流） -->
@@ -230,11 +250,18 @@
                 v-for="(l, i) in cardProfile.social_links"
                 :key="i"
                 class="card__chip"
-                :style="{ borderColor: metaOf(l.platform).color, color: metaOf(l.platform).color }"
+                :style="{ borderColor: metaOf(l.platform).color }"
                 @click="openCardLink(l.url, l.title)"
               >
-                <view class="dot" :style="{ background: metaOf(l.platform).color }" />
-                <text class="card__chip__text">{{ l.title || metaOf(l.platform).label }}</text>
+                <view class="card__chip__head">
+                  <view class="dot" :style="{ background: metaOf(l.platform).color }" />
+                  <text
+                    class="card__chip__text"
+                    :style="{ color: metaOf(l.platform).color }"
+                    >{{ metaOf(l.platform).accountLabel }}</text
+                  >
+                </view>
+                <text class="card__chip__account">{{ cardLinkAccount(l) }}</text>
               </view>
             </view>
 
@@ -291,6 +318,9 @@ import { getUserAvatarSrc } from '@/utils/avatar'
 import { openExternalUrl } from '@/utils/openExternal'
 import { publicUserApi } from '@/api/social'
 import { socialPlatformMeta } from '@/constants/social'
+import { socialAccountText } from '@/utils/socialAccount'
+import type { SocialPlatform } from '@/constants/social'
+import { interestTags } from '@/constants/interests'
 import type { PublicUserProfile } from '@/types/social'
 import type { RankingItem, RankingMe, RankingPeriod } from '@/types/rank'
 
@@ -326,6 +356,8 @@ const cardError = ref('')
 
 const cardName = computed(() => cardProfile.value?.user.nickname || '未设置昵称')
 const cardBio = computed(() => cardProfile.value?.user.bio || '')
+/** 贡献者的兴趣标签 */
+const cardTags = computed(() => interestTags(cardProfile.value?.user.interests))
 const cardAvatar = computed(() =>
   cardProfile.value
     ? getUserAvatarSrc({
@@ -339,6 +371,19 @@ const cardRankText = computed(() => {
   return r > 0 ? `#${r}` : '未上榜'
 })
 
+/**
+ * 贡献者采纳率。
+ *
+ * 后端未升级到含该字段的版本时 submitted_count / adoption_rate 都是 undefined，
+ * 这里必须兜底，否则页面上会出现「undefined%」。
+ */
+const cardAdoptionText = computed(() => {
+  const s = cardProfile.value?.stats
+  const submitted = s?.submitted_count ?? 0
+  if (!s || submitted <= 0) return '—'
+  return `${s.adoption_rate ?? 0}%`
+})
+
 // ─── 派生 ───
 const myRank = computed(() => me.value?.rank ?? 0)
 const onBoard = computed(() => myRank.value > 0)
@@ -350,20 +395,24 @@ const periodLabel = computed(() => {
 })
 
 /**
- * 星币口径标签。
+ * 星币口径说明（写在这里备查，页面上不再显示文字标签）。
  *
  * 榜单里的 star_coins 是**按周期派生**的（条数 × 10），不是账户里的累计值；
- * 贡献者卡片里的 star_coins 才是 user_profiles 的真实累计。
- * 两个数放在一起看时必须区分，否则用户会以为榜单算错了。
+ * 贡献者卡片 / 主页里的 star_coins 才是 user_profiles 的真实累计。
+ *
+ * 页面上只用星币图标 + 数字表示，不再写「累计星币 / 本期星币」——
+ * 数字旁边再挂一串文字纯属啰嗦；周期含义由「我的本月排名 / 总榜名次」这类标题承担。
  */
-const starLabel = computed(() => (period.value === 'all' ? '累计星币' : '本期星币'))
 
-/** 追赶文案：第一名给鼓励，其余给「还差几条」 */
+/**
+ * 我的贡献文案。
+ *
+ * 只说「感谢」，不写「再收录 N 条就能超过上一名」——
+ * 榜单是鼓励大家分享情报的地方，不是给用户互相攀比的 KPI。
+ */
 const chaseText = computed(() => {
   if (!me.value || !onBoard.value) return ''
-  if (me.value.rank === 1) return `${periodLabel.value}第一名，继续保持！再来一条就更稳了`
-  if (me.value.gap_to_next > 0) return `再收录 ${me.value.gap_to_next} 条即可超过上一名`
-  return ''
+  return '感谢您的分享~'
 })
 
 /** 进度条只在「我上面有人」时才有意义（第一名没有上一名可追） */
@@ -491,7 +540,7 @@ function closeRule() {
  * 卡片内容（成绩 / 个性化 / 社交主页链接）来自
  * GET /public/users/:id/profile —— 公开可读，与榜单的可见性保持一致。
  */
-async function openCard(userId: number) {
+async function openCard(userId: string) {
   if (!userId) return
   cardProfile.value = null
   cardError.value = ''
@@ -520,6 +569,11 @@ function goCardProfile() {
 
 function metaOf(platform: string) {
   return socialPlatformMeta(platform)
+}
+
+/** 贡献者链接的账号标识（@123456 之类） */
+function cardLinkAccount(l: { platform: SocialPlatform; url: string; title?: string }) {
+  return socialAccountText(l.platform, l.url, l.title)
 }
 </script>
 
@@ -578,12 +632,6 @@ function metaOf(platform: string) {
   font-weight: 800;
   color: #222;
 }
-.hero-sub {
-  display: block;
-  font-size: 24rpx;
-  color: #4a4a4a;
-  margin-top: 8rpx;
-}
 .tabs {
   display: flex;
   gap: 16rpx;
@@ -626,9 +674,24 @@ function metaOf(platform: string) {
   color: #888;
 }
 .my-stars {
-  font-size: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+.my-stars__num {
+  font-size: 26rpx;
   font-weight: 700;
   color: #ff8c00;
+}
+/* 星币图标 */
+.coin-icon {
+  width: 30rpx;
+  height: 30rpx;
+  flex-shrink: 0;
+}
+.coin-icon--row {
+  width: 26rpx;
+  height: 26rpx;
 }
 .my-rank {
   display: flex;
@@ -874,17 +937,14 @@ function metaOf(platform: string) {
   margin-top: 4rpx;
 }
 .row__right {
-  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
 }
 .row__stars {
-  display: block;
   font-size: 28rpx;
   font-weight: 700;
   color: #ff8c00;
-}
-.row__unit {
-  font-size: 20rpx;
-  color: #bbb;
 }
 
 .load-more {
@@ -1005,6 +1065,21 @@ function metaOf(platform: string) {
   margin-top: 8rpx;
   line-height: 1.5;
 }
+/* 贡献者兴趣标签 */
+.card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-top: 12rpx;
+}
+.card__tag {
+  padding: 3rpx 14rpx;
+  border-radius: 20rpx;
+  border: 1rpx solid transparent;
+}
+.card__tag__text {
+  font-size: 21rpx;
+}
 .card__state {
   padding: 50rpx 0;
   text-align: center;
@@ -1029,7 +1104,7 @@ function metaOf(platform: string) {
   gap: 6rpx;
 }
 .card__stat__num {
-  font-size: 34rpx;
+  font-size: 32rpx;
   font-weight: 800;
   color: #333;
 }
@@ -1043,6 +1118,18 @@ function metaOf(platform: string) {
   font-size: 21rpx;
   color: #999;
 }
+/* 累计星币：图标 + 数字 */
+.card__coins {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  margin-top: 14rpx;
+}
+.card__coins__num {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #ff8c00;
+}
 .card__links {
   margin-top: 24rpx;
   display: flex;
@@ -1051,20 +1138,41 @@ function metaOf(platform: string) {
 }
 .card__chip {
   display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 220rpx;
+  max-width: 100%;
+  padding: 14rpx 20rpx;
+  border: 1rpx solid #ddd;
+  border-radius: 18rpx;
+  background: #fff;
+}
+.card__chip__head {
+  display: flex;
   align-items: center;
   gap: 10rpx;
-  padding: 10rpx 20rpx;
-  border: 1rpx solid #ddd;
-  border-radius: 999rpx;
 }
 .card__chip__text {
   font-size: 24rpx;
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card__chip__account {
+  font-size: 20rpx;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dot {
   width: 14rpx;
   height: 14rpx;
   border-radius: 7rpx;
+  flex-shrink: 0;
 }
 .card__btn {
   margin-top: 32rpx;

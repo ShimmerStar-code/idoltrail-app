@@ -16,8 +16,11 @@ export interface RankingItem {
    *
    * 点这一行要打开「贡献者卡片」，那边需要一个指向具体用户的 key。
    * 它不是敏感信息（App 从不展示，也拿不到手机号等身份标识）。
+   *
+   * 字符串类型：用户 id 超过 Number.MAX_SAFE_INTEGER，当数字用会丢精度，
+   * 查用户会得到「用户不存在或已不可见」。
    */
-  user_id: number
+  user_id: string
   nickname: string
   avatar_url: string
   gender: 0 | 1 | 2

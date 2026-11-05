@@ -54,26 +54,53 @@
                 />
               </view>
               <text v-if="profile.user.bio" class="bio">{{ profile.user.bio }}</text>
+              <view v-if="profileTags.length" class="tag-list">
+                <view
+                  v-for="tag in profileTags"
+                  :key="tag.code"
+                  class="tag"
+                  :style="{ background: tag.color + '1A', borderColor: tag.color }"
+                >
+                  <text class="tag__text" :style="{ color: tag.color }">{{ tag.label }}</text>
+                </view>
+              </view>
               <text class="joined">加入于 {{ profile.user.register_at || '—' }}</text>
+              <view class="coins">
+                <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
+                <text class="coins__num">{{ profile.stats.star_coins }}</text>
+              </view>
             </view>
           </view>
 
           <!-- 成绩 -->
           <view class="stats-card">
             <view class="stat">
-              <text class="stat__num">{{ profile.stats.adopted_count }}</text>
-              <text class="stat__label">累计收录</text>
+              <text class="stat__num">{{ profile.stats.submitted_count ?? 0 }}</text>
+              <text class="stat__label">上传情报</text>
             </view>
             <view class="stat__divider" />
             <view class="stat">
-              <text class="stat__num stat__num--gold">{{ profile.stats.star_coins }}</text>
-              <text class="stat__label">累计星币</text>
+              <text class="stat__num">{{ profile.stats.adopted_count ?? 0 }}</text>
+              <text class="stat__label">被采纳</text>
+            </view>
+            <view class="stat__divider" />
+            <view class="stat">
+              <text class="stat__num stat__num--gold">{{ adoptionRateText }}</text>
+              <text class="stat__label">采纳率</text>
             </view>
             <view class="stat__divider" />
             <view class="stat">
               <text class="stat__num stat__num--rank">{{ rankText }}</text>
               <text class="stat__label">总榜名次</text>
             </view>
+          </view>
+
+          <!-- 审核中的情报：说明「上传了但还没算数」的那部分 -->
+          <view v-if="(profile.stats.pending_count ?? 0) > 0" class="pending-tip">
+            <uni-icons type="info" size="14" color="#FEA500" />
+            <text class="pending-tip__text"
+              >还有 {{ profile.stats.pending_count }} 条情报在审核中，采纳后会计入成绩</text
+            >
           </view>
 
           <!-- 社交主页链接 -->
@@ -88,7 +115,8 @@
               <view v-for="(l, i) in draft" :key="i" class="link-edit-item">
                 <view class="dot" :style="{ background: metaOf(l.platform).color }" />
                 <view class="link-edit-main">
-                  <text class="link-edit-title">{{ l.title || metaOf(l.platform).label }}</text>
+                  <text class="link-edit-title">{{ metaOf(l.platform).accountLabel }}</text>
+                  <!-- 编辑态展示完整 URL，方便核对填的是不是这个平台的地址 -->
                   <text class="link-edit-url">{{ l.url }}</text>
                 </view>
                 <view class="link-del" @click="removeLink(i)">
@@ -110,12 +138,19 @@
                 v-for="(l, i) in profile.social_links"
                 :key="i"
                 class="chip"
-                :style="{ borderColor: metaOf(l.platform).color, color: metaOf(l.platform).color }"
+                :style="{ borderColor: metaOf(l.platform).color }"
                 @click="openLink(l.url, l.title)"
               >
-                <view class="dot" :style="{ background: metaOf(l.platform).color }" />
-                <text class="chip__text">{{ l.title || metaOf(l.platform).label }}</text>
-                <uni-icons type="right" size="10" :color="metaOf(l.platform).color" />
+                <view class="chip__head">
+                  <view class="dot" :style="{ background: metaOf(l.platform).color }" />
+                  <text
+                    class="chip__text"
+                    :style="{ color: metaOf(l.platform).color }"
+                    >{{ metaOf(l.platform).accountLabel }}</text
+                  >
+                  <uni-icons type="right" size="10" :color="metaOf(l.platform).color" />
+                </view>
+                <text class="chip__account">{{ linkAccount(l) }}</text>
               </view>
             </view>
 
@@ -170,7 +205,7 @@
         <button v-if="editing" class="cta-btn" @click="save">
           {{ saving ? '保存中…' : '保存' }}
         </button>
-        <button v-else class="cta-btn" @click="goSubmit">上传情报 · 冲榜</button>
+        <button v-else class="cta-btn" @click="goSubmit">分享新情报</button>
       </view>
 
       <!-- 添加链接表单 -->
@@ -203,7 +238,7 @@
             <input
               v-model="form.title"
               class="link-form__input"
-              placeholder="选填，如「我的小红书」"
+              placeholder="选填，如「日常更新」"
               placeholder-class="ph"
               :maxlength="24"
             />
@@ -219,6 +254,10 @@
               :maxlength="300"
             />
             <text class="link-form__hint">{{ currentMeta.hint }}</text>
+            <!-- 实时预览：用户能立刻确认这个链接会被展示成什么样 -->
+            <text v-if="previewAccount" class="link-form__preview"
+              >主页将展示为：{{ currentMeta.accountLabel }} · {{ previewAccount }}</text
+            >
           </view>
 
           <text v-if="formError" class="link-form__error">{{ formError }}</text>
@@ -246,12 +285,15 @@ import {
   SOCIAL_PLATFORMS,
   socialPlatformMeta,
 } from '@/constants/social'
+import { interestTags } from '@/constants/interests'
+import { socialAccountText } from '@/utils/socialAccount'
+import type { SocialPlatform } from '@/constants/social'
 import type { PublicUserProfile, SocialLink } from '@/types/social'
 
 const userStore = useUserStore()
 const { statusBarHeight } = getNavBarMetrics()
 
-const uid = ref(0)
+const uid = ref('')
 const profile = ref<PublicUserProfile | null>(null)
 const loading = ref(false)
 const loadError = ref('')
@@ -285,16 +327,47 @@ const genderIcon = computed(() => {
   return ''
 })
 
+/** 兴趣标签（用户自己勾选的音乐风格） */
+const profileTags = computed(() => interestTags(profile.value?.user.interests))
+
 const rankText = computed(() => {
   const r = profile.value?.stats.rank ?? 0
   return r > 0 ? `#${r}` : '未上榜'
 })
 
+/**
+ * 采纳率。
+ *
+ * 三个都要兜底：
+ *   - 后端未升级到含该字段的版本 → submitted_count / adoption_rate 都是 undefined；
+ *   - 没上传过 → 显示「—」而不是 0%（会显得像「一条都没被采纳」）；
+ *   - 正常 → 「62%」。
+ */
+const adoptionRateText = computed(() => {
+  const s = profile.value?.stats
+  const submitted = s?.submitted_count ?? 0
+  if (!s || submitted <= 0) return '—'
+  return `${s.adoption_rate ?? 0}%`
+})
+
 const platformLabels = SOCIAL_PLATFORMS.map((p) => p.label)
 const currentMeta = computed(() => SOCIAL_PLATFORMS[formIndex.value])
 
+/** 添加弹窗里的实时预览：这条链接会被展示成什么 */
+const previewAccount = computed(() => {
+  const url = form.value.url.trim()
+  if (!url) return ''
+  const platform = SOCIAL_PLATFORM_KEYS[formIndex.value]
+  return socialAccountText(platform, url, form.value.title)
+})
+
 function metaOf(platform: string) {
   return socialPlatformMeta(platform)
+}
+
+/** 链接副标题：账号标识（@123456 之类），解析不出来退回域名 */
+function linkAccount(l: { platform: SocialPlatform; url: string; title?: string }) {
+  return socialAccountText(l.platform, l.url, l.title)
 }
 
 function dateOf(c: { start_date: string | null; reviewed_at: string }): string {
@@ -319,16 +392,18 @@ async function load() {
 
 onLoad((options) => {
   const raw = options?.uid
-  const parsed = Number(raw)
-  if (raw && Number.isFinite(parsed) && parsed > 0) {
-    uid.value = parsed
+  // ⚠️ 这里**不能**用 Number() 转：用户 id 是雪花 id（9e17 量级），
+  // 超过 JS 的 Number.MAX_SAFE_INTEGER，转成数字会丢精度，
+  // 拿着舍入后的 id 去查用户，后端就找不到人 → 「用户不存在或已不可见」。
+  if (raw) {
+    uid.value = String(raw)
   } else {
     if (!userStore.isLoggedIn) {
       uni.showToast({ title: '请先登录', icon: 'none' })
       setTimeout(() => uni.navigateBack(), 600)
       return
     }
-    uid.value = userStore.user?.id ?? 0
+    uid.value = userStore.user?.id ?? ''
   }
   void load()
 })
@@ -531,6 +606,54 @@ function goBack() {
   font-size: 22rpx;
   color: #aaa;
 }
+/* 累计星币：只用图标 + 数字，不写「累计星币」文案 */
+.coins {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+.coins__num {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #ff8c00;
+}
+/* 星币图标 */
+.coin-icon {
+  width: 28rpx;
+  height: 28rpx;
+  flex-shrink: 0;
+}
+
+/* 审核中提示 */
+.pending-tip {
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 14rpx 20rpx;
+  background: rgba(254, 165, 0, 0.08);
+  border-radius: 18rpx;
+}
+.pending-tip__text {
+  font-size: 22rpx;
+  color: #b8823a;
+}
+
+/* 兴趣标签 */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 12rpx;
+}
+.tag {
+  padding: 4rpx 16rpx;
+  border-radius: 22rpx;
+  border: 1rpx solid transparent;
+}
+.tag__text {
+  font-size: 22rpx;
+}
 
 /* ─── 成绩 ─── */
 .stats-card {
@@ -551,7 +674,7 @@ function goBack() {
   gap: 8rpx;
 }
 .stat__num {
-  font-size: 40rpx;
+  font-size: 36rpx;
   font-weight: 800;
   color: #333;
 }
@@ -608,20 +731,42 @@ function goBack() {
 }
 .chip {
   display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 260rpx;
+  max-width: 100%;
+  padding: 16rpx 22rpx;
+  border: 1rpx solid #ddd;
+  border-radius: 20rpx;
+  background: #fff;
+}
+.chip__head {
+  display: flex;
   align-items: center;
   gap: 10rpx;
-  padding: 12rpx 20rpx;
-  border: 1rpx solid #ddd;
-  border-radius: 999rpx;
 }
 .dot {
   width: 14rpx;
   height: 14rpx;
   border-radius: 7rpx;
+  flex-shrink: 0;
 }
 .chip__text {
   font-size: 25rpx;
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 账号标识：@123456 / 昵称 / 域名 */
+.chip__account {
+  font-size: 21rpx;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .link-edit-list {
@@ -825,6 +970,13 @@ function goBack() {
 .link-form__hint {
   font-size: 21rpx;
   color: #aaa;
+}
+/* 实时预览：这条链接会被展示成什么样 */
+.link-form__preview {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 21rpx;
+  color: #fea500;
 }
 .link-form__error {
   display: block;

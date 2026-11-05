@@ -16,6 +16,8 @@ export type SocialPlatform =
 export interface SocialPlatformMeta {
   /** 平台展示名 */
   label: string
+  /** 主页上显示的称呼：明确说明「这是 TA 的什么账号」 */
+  accountLabel: string
   /** 品牌色（chip 文字色 / 描边色） */
   color: string
   /** 输入框 placeholder：给出该平台的典型链接格式 */
@@ -31,6 +33,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'xiaohongshu',
     label: '小红书',
+    accountLabel: '小红书账号',
     color: '#FF2442',
     placeholder: 'https://www.xiaohongshu.com/user/profile/…',
     hint: '小红书个人主页链接',
@@ -38,6 +41,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'weibo',
     label: '微博',
+    accountLabel: '微博账号',
     color: '#E6162D',
     placeholder: 'https://weibo.com/u/…',
     hint: '微博个人主页链接',
@@ -45,6 +49,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'bilibili',
     label: 'B站',
+    accountLabel: 'B站账号',
     color: '#00A1D6',
     placeholder: 'https://space.bilibili.com/…',
     hint: 'B站个人空间链接',
@@ -52,6 +57,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'wechat_official',
     label: '公众号',
+    accountLabel: '微信公众号',
     color: '#07C160',
     placeholder: 'https://mp.weixin.qq.com/s/…',
     hint: '公众号文章或名片页链接',
@@ -59,6 +65,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'douyin',
     label: '抖音',
+    accountLabel: '抖音账号',
     color: '#FE2C55',
     placeholder: 'https://www.douyin.com/user/…',
     hint: '抖音个人主页链接',
@@ -66,6 +73,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
   {
     key: 'other',
     label: '其他',
+    accountLabel: '其他主页',
     color: '#8A8F99',
     placeholder: 'https://…',
     hint: '任意个人主页链接（仅支持 http / https）',
@@ -74,6 +82,7 @@ const PLATFORM_DEFS: SocialPlatformDef[] = [
 
 export const SOCIAL_PLATFORMS: SocialPlatformMeta[] = PLATFORM_DEFS.map((d) => ({
   label: d.label,
+  accountLabel: d.accountLabel,
   color: d.color,
   placeholder: d.placeholder,
   hint: d.hint,
@@ -88,6 +97,7 @@ export const SOCIAL_PLATFORM_META: Record<SocialPlatform, SocialPlatformMeta> =
     (acc, d) => {
       acc[d.key] = {
         label: d.label,
+        accountLabel: d.accountLabel,
         color: d.color,
         placeholder: d.placeholder,
         hint: d.hint,

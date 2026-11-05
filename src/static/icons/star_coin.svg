@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  星币图标（App 内的虚拟货币）
+
+  为什么不用文本字符 ★：
+  - ★ 在不同字体下粗细、大小都不一样，Android 各家 ROM 差异明显；
+  - 字符没法跟品牌色对齐（星币是金色，而 ★ 只能用字色）；
+  - 屏读器会把 ★ 念成「黑星」，对无障碍不友好。
+
+  所以这里用矢量金币：金色圆币 + 米白五角星，尺寸随容器缩放不失真。
+-->
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <title>星币</title>
+  <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+    <circle cx="12" cy="12" r="11" fill="#FFC93C" />
+    <circle cx="12" cy="12" r="10" fill="none" stroke="#EFA000" stroke-width="1" />
+    <path
+      d="M12 4.6 L14.4 9.5 L19.8 10.3 L15.9 14.1 L16.8 19.5 L12 16.9 L7.2 19.5 L8.1 14.1 L4.2 10.3 L9.6 9.5 Z"
+      fill="#FFF6D6" />
+  </g>
+</svg>

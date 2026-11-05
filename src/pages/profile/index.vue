@@ -24,8 +24,18 @@
                 mode="aspectFit"
               />
             </view>
+            <view v-if="isLoggedIn && myTags.length" class="tag-row">
+              <view
+                v-for="tag in myTags"
+                :key="tag.code"
+                class="tag"
+                :style="{ background: tag.color + '1A', borderColor: tag.color }"
+              >
+                <text class="tag__text" :style="{ color: tag.color }">{{ tag.label }}</text>
+              </view>
+            </view>
             <view v-if="isLoggedIn" class="stats-row">
-              <text class="stat-label">星币：</text>
+              <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
               <text class="stat-value">{{ user?.star_coins ?? 0 }}</text>
               <text class="stat-label stat-gap">贡献值：</text>
               <text class="stat-value">{{ user?.contribution ?? 0 }}</text>
@@ -140,6 +150,7 @@ import { useUserStore } from "@/stores/user";
 import { getNavBarMetrics } from "@/utils/system";
 import { getUserAvatarSrc } from "@/utils/avatar";
 import { DONATE_ENABLED } from "@/utils/env";
+import { interestTags } from "@/constants/interests";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, ref } from "vue";
 const statusBarHeight = ref(20);
@@ -147,6 +158,8 @@ const tabBarHeight = ref(80);
 const userStore = useUserStore();
 const user = computed(() => userStore.user);
 const isLoggedIn = computed(() => userStore.isLoggedIn);
+/** 我的兴趣标签 */
+const myTags = computed(() => interestTags(user.value?.interests));
 const genderIcon = computed(() => {
   const g = user.value?.gender;
   if (g === 1) return "/static/icons/male.svg";
@@ -391,6 +404,26 @@ function copyQQGroup() {
 .stats-row {
   display: flex;
   align-items: center;
+}
+/* 我的兴趣标签 */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+/* 星币图标 */
+.coin-icon {
+  width: 28rpx;
+  height: 28rpx;
+  flex-shrink: 0;
+}
+.tag {
+  padding: 3rpx 14rpx;
+  border-radius: 20rpx;
+  border: 1rpx solid transparent;
+}
+.tag__text {
+  font-size: 21rpx;
 }
 .stat-label {
   font-size: 24rpx;

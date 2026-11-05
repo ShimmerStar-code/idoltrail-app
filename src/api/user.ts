@@ -16,6 +16,8 @@ export const userApi = {
     birthday?: string      // "YYYY-MM-DD"
     nationality?: string
     bio?: string
+    /** 兴趣标签（event_genre code 数组）；传空数组 = 清空 */
+    interests?: string[]
   }): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('/user/me', { method: 'PATCH', data })
   },

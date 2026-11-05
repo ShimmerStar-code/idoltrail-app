@@ -1,6 +1,14 @@
 // 与后端 /auth/* /user/* 响应对齐
 export interface User {
-  id: number
+  /**
+   * 用户主键。
+   *
+   * 字符串类型，不是 number：用户 id 是雪花 id（当前 9e17 量级），
+   * 超过 JS 的 Number.MAX_SAFE_INTEGER（2^53 ≈ 9.007e15）。
+   * 当成数字用会丢精度 → 拿这个 id 查用户就是「用户不存在或已不可见」。
+   * 后端 model.User 的 json tag 是 "id,string"。
+   */
+  id: string
   nickname: string
   avatar_url: string
   gender: 0 | 1 | 2
@@ -19,6 +27,8 @@ export interface User {
   bio?: string
   star_coins?: number
   contribution?: number
+  /** 兴趣标签（event_genre code），如 ["JPOP","KPOP"] */
+  interests?: string[]
 }
 
 export interface AuthTokens {
