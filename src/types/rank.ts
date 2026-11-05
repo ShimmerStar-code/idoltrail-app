@@ -1,6 +1,7 @@
 // 贡献榜（GET /public/rankings）
 //
-// 榜单口径：按「被运营核实收录的情报条数」排序，每收录 1 条折算 10 星币。
+// 榜单口径：按「被运营核实收录的情报条数」排序，每收录 1 条计 10 星币。
+// 星币只是排名的记分，不可兑换、不提现，文案里不要写成「赚星币」。
 // 昵称 / 头像会展示给其他用户 —— 对应的披露说明见隐私政策「四之二、关于贡献排行榜」。
 
 /** 榜单周期：总榜（累计）/ 本月榜 / 本周榜 */
@@ -22,7 +23,7 @@ export interface RankingItem {
   gender: 0 | 1 | 2
   /** 本期被收录的情报条数（排序依据） */
   adopted_count: number
-  /** 本期获得的星币（每条 10 星币） */
+  /** 本期记入的星币（每条 10 星币，仅用于排名） */
   star_coins: number
   /** 这一行是不是当前登录用户 */
   is_me: boolean
@@ -34,7 +35,7 @@ export interface RankingMe {
   rank: number
   /** 本期收录条数 */
   adopted_count: number
-  /** 本期获得的星币 */
+  /** 本期记入的星币（仅用于排名） */
   star_coins: number
   /** 上一名（我上面那一位）的收录条数 */
   prev_adopted_count: number

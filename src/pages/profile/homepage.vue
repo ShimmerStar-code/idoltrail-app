@@ -14,6 +14,7 @@
     - 社交链接是**用户主动填写**的公开信息，默认不填 = 不展示
     - 链接的合法性(平台白名单 / 域名白名单)由服务端校验，前端只做提示
     - 未登录也能看别人的主页（公开可读）
+    - 星币只是贡献榜的记分，不兑换任何实物或权益，文案里不要写成「赚星币」
 -->
 <template>
   <PageLayout>
@@ -169,7 +170,7 @@
         <button v-if="editing" class="cta-btn" @click="save">
           {{ saving ? '保存中…' : '保存' }}
         </button>
-        <button v-else class="cta-btn" @click="goSubmit">上传情报 · 赚星币</button>
+        <button v-else class="cta-btn" @click="goSubmit">上传情报 · 冲榜</button>
       </view>
 
       <!-- 添加链接表单 -->
