@@ -117,6 +117,20 @@
            "navigationBarTitleText": "",
            "navigationStyle": "custom"
          }
+      },
+      {
+         "path": "pages/profile/ranking",
+         "style": {
+           "navigationBarTitleText": "贡献榜",
+           "navigationStyle": "custom"
+         }
+      },
+      {
+         "path": "pages/profile/homepage",
+         "style": {
+           "navigationBarTitleText": "我的主页",
+           "navigationStyle": "custom"
+         }
       }
    ],
    "subPackages": [

@@ -215,6 +215,25 @@ const menuItems = [
     iconColor: "#fff",
     action: () => guardedNav("/pages/event/submit"),
   },
+  // 贡献榜：**不加登录门槛**。榜单是公开的（拉新入口），
+  // 未登录用户也能看到别人上榜 —— 这正是引导他去注册上传的钩子；
+  // 页面内自己会提示「登录后查看你的名次」。
+  {
+    label: "贡献榜",
+    icon: "/static/icons/rank_icon.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => nav("/pages/profile/ranking"),
+  },
+  // 我的主页：展示自己的成绩（收录数 / 星币 / 名次）与社交主页链接，
+  // 是「引流工具」的落点 —— 粉丝可以在这里找到 TA 的小红书 / 微博 / B站。
+  {
+    label: "我的主页",
+    icon: "/static/icons/rank_icon.svg",
+    iconBg: "rgba(0,0,0,0.0)",
+    iconColor: "#fff",
+    action: () => guardedNav("/pages/profile/homepage"),
+  },
   {
     label: "账号管理",
     icon: "/static/icons/account_icon.svg",

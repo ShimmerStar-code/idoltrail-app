@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>贡献榜</title>
+    <!-- 奖杯：贡献排名 -->
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M7 4.5 L17 4.5 L17 9 A5 5 0 0 1 7 9 Z"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M7 6 L4.5 6 A2.5 2.5 0 0 0 7 9.5"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M17 6 L19.5 6 A2.5 2.5 0 0 1 17 9.5"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M12 14 L12 17"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M9.5 17 L14.5 17"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M8.5 20 L15.5 20"
+              stroke="#8A8F99" stroke-width="1.6" stroke-linecap="round"/>
+    </g>
+</svg>

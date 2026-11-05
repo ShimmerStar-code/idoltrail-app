@@ -36,6 +36,13 @@
           <text class="intro-text"
             >拍下海报或演出信息发给我们。运营核实后会把它加进 App，被采用还能拿到星币。</text
           >
+          <!-- 贡献榜入口：把「上传 → 被收录 → 上榜」这条链路显式串起来。
+               不加登录门槛 —— 未登录也能看别人上榜，这是引导注册上传的钩子。 -->
+          <view class="intro-link" @click="goRanking">
+            <uni-icons type="medal-filled" size="16" color="#FEA500" />
+            <text class="intro-link__text">看看谁在贡献榜上</text>
+            <uni-icons type="right" size="10" color="#FEA500" />
+          </view>
         </view>
 
         <!-- 海报图 -->
@@ -169,6 +176,11 @@ const canSubmit = computed(
 function goBack() {
   if (getCurrentPages().length > 1) uni.navigateBack()
   else uni.switchTab({ url: '/pages/profile/index' })
+}
+
+/** 去看贡献榜（个人中心的「贡献榜」页） */
+function goRanking() {
+  uni.navigateTo({ url: '/pages/profile/ranking' })
 }
 
 /** 提交成功后延迟刷新「我的上报」的定时器句柄（离页必须清掉） */
@@ -307,6 +319,19 @@ onMounted(() => {
   font-size: 25rpx;
   color: #888;
   line-height: 1.7;
+}
+
+/* 贡献榜入口 */
+.intro-link {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 16rpx;
+}
+.intro-link__text {
+  font-size: 25rpx;
+  color: #fea500;
+  font-weight: 600;
 }
 
 /* ─── 卡片 ─── */
