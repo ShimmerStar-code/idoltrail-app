@@ -28,14 +28,22 @@
               <text class="tab-text">{{ t }}</text>
             </view>
           </view>
-          <!-- 订阅城市：放在 tab 正下方而不是标题栏。
+          <!-- 新增订阅：放在 tab 正下方而不是标题栏。
                原来标题右侧是一个 60rpx 的白底圆点，只有「+」，在真机上只有约 30px，
                夹在大标题里几乎看不见，用户根本不知道能点。
                现在改成整行、带图标的描边按钮，放在 tab 切换条下方常驻（不随列表滚动），
-               进入城市 tab 就能看到。 -->
-          <view v-if="activeTab === 2" class="add-city-btn" @click="onAddCity">
+               进入对应 tab 就能看到。
+
+               偶像与城市两种 tab 各有自己的新增入口：
+                 - 偶像 → 跳「偶像」页（那里有搜索框 + 每个偶像的订阅按钮）
+                 - 城市 → 直接弹 CityPicker（城市是有限枚举，本地选就行） -->
+          <view v-if="activeTab === 0" class="add-btn" @click="onAddArtist">
             <uni-icons type="plus" size="17" color="#8A5600" />
-            <text class="add-city-text">订阅城市</text>
+            <text class="add-btn-text">订阅偶像</text>
+          </view>
+          <view v-if="activeTab === 2" class="add-btn" @click="onAddCity">
+            <uni-icons type="plus" size="17" color="#8A5600" />
+            <text class="add-btn-text">订阅城市</text>
           </view>
         </view>
 
@@ -226,6 +234,7 @@ import type { DictOption } from "@/types/dictionary";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { getStatusBarHeight } from "@/utils/system";
+import { switchTabPage } from "@/utils/pages";
 import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { addToSystemCalendar } from "@/utils/calendar";
 import { track } from "@/utils/analytics";
@@ -489,6 +498,24 @@ function onEventStatusChange(s: "ongoing" | "expired") {
   scrollListToTop();
 }
 
+// ── 添加偶像 ──
+/**
+ * 跳到「偶像」页去搜索并订阅。
+ *
+ * 为什么是跳转而不是像城市那样弹一个选择器：
+ *   偶像是**开放集合**（库里几百个、还在持续增加），没有「城市」那种有限枚举，
+ *   本地列不出来也不适合做 picker。偶像页已经有搜索框 + 每个偶像的订阅按钮，
+ *   让用户自己去搜、自己挑，比这里再塞一个选择器更顺。
+ *
+ * 用 switchTabPage 而不是 navigateTo：
+ *   偶像页是 tab 页（页内自绘 TabBar，pages/artist/list），
+ *   navigateTo 会把一个带 TabBar 的页面压到本页之上，底部出现两条 TabBar。
+ *   switchTabPage 走的是 tab 语义：目标页已在栈中就回退过去，否则 reLaunch。
+ */
+function onAddArtist() {
+  switchTabPage("/pages/artist/list");
+}
+
 // ── 添加城市 ──
 const cityPickerVisible = ref(false);
 
@@ -687,7 +714,7 @@ function voToEvent(vo: EventCardVO): Event {
   color: rgba(51, 51, 51, 1);
 }
 
-/* 订阅城市：整行描边按钮，挂在 tab 下方。
+/* 新增订阅（偶像 / 城市两个 tab 共用）：整行描边按钮，挂在 tab 下方。
    高度 88rpx（约 44pt），满足移动端可点区域下限。
    原来用实心 #fea500 配 30rpx 白字，反馈是「颜色太浓、字看不清」。
    改成浅橙底 + 同色系描边 + 深棕字：
@@ -695,7 +722,7 @@ function voToEvent(vo: EventCardVO): Event {
      字 #8A5600 → 实测对比度 5.74:1，达 WCAG AA（4.5:1）
    （中途试过 #B87503，只有 3.50:1，不达标，已弃用；
      实心橙底 30rpx 白字本身就只有约 1.9:1，这就是看不清的根因。） */
-.add-city-btn {
+.add-btn {
   margin-top: 20rpx;
   height: 88rpx;
   border-radius: 16rpx;
@@ -705,7 +732,7 @@ function voToEvent(vo: EventCardVO): Event {
   align-items: center;
   justify-content: center;
 }
-.add-city-text {
+.add-btn-text {
   margin-left: 10rpx;
   font-size: 30rpx;
   font-weight: 600;
