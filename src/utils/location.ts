@@ -31,9 +31,17 @@
 //   因此 CityPicker 始终提供手动选择，且手动选择的结果不会被定位覆盖。
 
 import { geoApi } from '@/api/geo'
+import { cityEn } from '@/constants/cities'
 import { hasPrivacyConsent, requestLocationPermission } from '@/utils/privacy'
 
-const KEY_LOCATED_CITY = 'fans:locate:city'
+/**
+ * 本地缓存 key 带版本号。
+ *
+ * v2：旧 key 下缓存过 IP 库的脏城市名（如「景山」「金融街」「鲁谷」——
+ * 上游把街道/地块名当成 city 返回），这些值既筛不出活动也会在顶部显示成
+ * 假城市。改 key 让旧缓存一次性失效，比逐个校验历史值干净。
+ */
+const KEY_LOCATED_CITY = 'fans:locate:city:v2'
 
 /** 定位结果的本地缓存时长：24h。城市级结果本就稳定，过期主要为了切城后能刷新 */
 const CACHE_TTL = 24 * 60 * 60 * 1000
@@ -52,6 +60,23 @@ function normalizeCity(raw: string | null | undefined): string {
   return (raw || '').trim().replace(/[市区县镇乡]$/, '')
 }
 
+/**
+ * 定位结果必须是「系统认识的城市」。
+ *
+ * 为什么必须校验：IP 库对部分 IP 会把**街道/地块名**当成 city 返回
+ * （实测取到过「景山」「金融街」「鲁谷」「友谊路」「管城」），而坐标定位在
+ * 县级市也可能只给出区县名。这些值：
+ *   - 在城市映射表（constants/cities.ts）里查不到 → 首页筛不出任何活动，
+ *     顶部却显示成一个「城市」，用户看到的是「定位到某个不存在的地方」；
+ *   - 还会被写进本地缓存锁 24h。
+ *
+ * 查不到就当定位失败：首页保持全国视图 + 提示手动选城市，
+ * 比显示一个假城市、或静默筛出空列表都诚实。
+ */
+function isKnownCity(city: string): boolean {
+  return !!city && !!cityEn(city)
+}
+
 interface CityCache {
   city: string
   /** 缓存写入时间戳（ms） */
@@ -65,10 +90,17 @@ function readCache(): CityCache | null {
     uni.removeStorageSync(KEY_LOCATED_CITY)
     return null
   }
+  // 缓存里可能是旧版写入的脏城市名（改 key 前的老数据），读出来时顺手清掉
+  if (!isKnownCity(raw.city)) {
+    uni.removeStorageSync(KEY_LOCATED_CITY)
+    return null
+  }
   return raw
 }
 
 function writeCache(city: string): void {
+  // 未知城市不进缓存：写进去就等于锁 24h，首页会一直显示一个筛不出活动的假城市
+  if (!isKnownCity(city)) return
   uni.setStorageSync(KEY_LOCATED_CITY, { city, at: Date.now() } as CityCache)
 }
 
@@ -133,6 +165,8 @@ async function locateByCoordinate(): Promise<string> {
   const data = await geoApi.reverseGeocode(lat, lon)
   const city = normalizeCity(data.city)
   if (!city) throw new Error('逆地理编码未返回城市')
+  // 县级市/新区可能只给出区县名，同样在映射表里查不到 → 当定位失败处理
+  if (!isKnownCity(city)) throw new Error(`坐标定位返回未知城市: ${city}`)
   return city
 }
 
@@ -141,6 +175,10 @@ async function locateByIp(): Promise<string> {
   const data = await geoApi.locateCityByIp()
   const city = normalizeCity(data.city)
   if (!city) throw new Error('IP 定位未返回城市')
+  // 上游 IP 库会把街道/地块名当 city 返回（「景山」「金融街」「鲁谷」…），
+  // 这种值在映射表里查不到 → 筛不出活动，顶部还显示成一个假城市。
+  // 当定位失败处理，让调用方降级（首页保留全国视图）。
+  if (!isKnownCity(city)) throw new Error(`IP 定位返回未知城市: ${city}`)
   return city
 }
 
