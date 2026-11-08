@@ -133,6 +133,42 @@
          }
       }
    ],
+   "tabBar": {
+      "color": "#9A9A9A",
+      "selectedColor": "#111111",
+      "backgroundColor": "#FFFFFF",
+      "borderStyle": "black",
+      "height": "56px",
+      "fontSize": "11px",
+      "iconWidth": "26px",
+      "spacing": "3px",
+      "list": [
+         {
+            "pagePath": "pages/home/index",
+            "text": "演出",
+            "iconPath": "static/icons/tabbar/tab-event.png",
+            "selectedIconPath": "static/icons/tabbar/tab-event-active.png"
+         },
+         {
+            "pagePath": "pages/artist/list",
+            "text": "偶像",
+            "iconPath": "static/icons/tabbar/tab-idol.png",
+            "selectedIconPath": "static/icons/tabbar/tab-idol-active.png"
+         },
+         {
+            "pagePath": "pages/subscribe/index",
+            "text": "订阅",
+            "iconPath": "static/icons/tabbar/tab-sub.png",
+            "selectedIconPath": "static/icons/tabbar/tab-sub-active.png"
+         },
+         {
+            "pagePath": "pages/profile/index",
+            "text": "Me",
+            "iconPath": "static/icons/tabbar/tab-me.png",
+            "selectedIconPath": "static/icons/tabbar/tab-me-active.png"
+         }
+      ]
+   },
    "subPackages": [
       {
          "root": "pages/event",

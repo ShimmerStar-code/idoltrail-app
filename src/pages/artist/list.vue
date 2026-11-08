@@ -32,7 +32,6 @@
         scroll-y
         :show-scrollbar="false"
         class="scroll-body"
-        :style="{ paddingBottom: tabBarHeight + 'px' }"
       >
         <!-- 骨架屏：首屏加载中 -->
         <template v-if="store.groupedLoading">
@@ -132,8 +131,6 @@
           </view>
         </scroll-view>
       </view>
-
-      <TabBar :current="1" />
     </view>
   </PageLayout>
 </template>
@@ -141,7 +138,6 @@
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
 import SearchOverlay from "@/components/SearchOverlay/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import { getArtistAvatarSrc } from "@/utils/avatar";
 import { useArtistStore } from "@/stores/artist";
 import { artistGroupLabel, artistGroupOrder } from "@/constants/artistCountries";
@@ -153,7 +149,6 @@ import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import { getStatusBarHeight } from "@/utils/system";
 import { perfMark } from "@/utils/perf";
-import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onShow, onHide, onUnload } from "@dcloudio/uni-app";
 const store = useArtistStore();
@@ -233,8 +228,6 @@ watch(searchActive, (val) => {
 onMounted(() => {
   perfMark('artist:onMounted')
   statusBarHeight.value = getStatusBarHeight();
-  // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
-  measureTabBarHeight();
 
   // 首次挂载：强制拉取已知国家（force=true），显示骨架屏等待首屏数据
   const tasks: Promise<unknown>[] = [store.fetchGrouped(9, true)];

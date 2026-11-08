@@ -225,9 +225,6 @@
         </scroll-view>
       </view>
 
-      <!-- 自定义 TabBar -->
-      <TabBar :current="0" />
-
       <!-- 通知面板 -->
       <NotificationPanel
         :visible="showNotifPanel"
@@ -240,7 +237,6 @@
 
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import SearchOverlay from "@/components/SearchOverlay/index.vue";
 import SearchSuggest from "@/components/SearchSuggest/index.vue";
 import CategorySheet from "@/components/CategorySheet/index.vue";
@@ -271,8 +267,8 @@ import {
 import { cityEn } from "@/constants/cities";
 import { HOT_ARTIST_FALLBACK } from "@/constants/hotArtists";
 import { getStatusBarHeight } from "@/utils/system";
-import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { locateCity } from "@/utils/location";
+import { switchTabPage } from "@/utils/pages";
 import { useVirtualList } from "@/composables/useVirtualList";
 import { EVENT_SORT_OPTIONS, type EventSort } from "@/api/event";
 import { track } from "@/utils/analytics";
@@ -529,20 +525,21 @@ const {
 
 // ── scroll-view 高度 ────────────────────────────────────────────
 // scroll-view 必须给确定高度才能滚动。列表区在固定头部下方，
-// 高度 = 页面高 - 头部实际高度 - 底部 TabBar 高度。
+// 高度 = 页面高 - 头部实际高度。
 //
 // ⚠️ 三个坑（都踩过）：
 // 1) .head 的高度**已经包含**它的 paddingTop(statusBarHeight)，
 //    再减一次 statusBarHeight 等于多扣一遍状态栏 → 底部露白；
-// 2) TabBar 高度不能写死 80（实际 ≈98rpx ≈51px），写死会多扣 ≈29px；
+// 2) 原生 tabBar 的高度**不在**页面视口里 —— 页面内容区止于 tabBar 上沿，
+//    getWindowInfo().windowHeight 已经把它减掉了，这里再减一次就多扣一截；
 // 3) .page 高度就是 100vh，直接实测拿，别用 windowHeight 倒推。
 const pageHeight = ref(0);
 const headHeight = ref(0);
 
 const scrollHeight = computed(() => {
   if (!pageHeight.value || !headHeight.value) return 0;
-  // 列表可视区 = 页面高 - 头部高 - TabBar 高（TabBar 是 fixed，浮在底部）
-  return Math.max(200, pageHeight.value - headHeight.value - tabBarHeight.value);
+  // 列表可视区 = 页面高 - 头部高（原生 tabBar 不占页面视口，无需再减）
+  return Math.max(200, pageHeight.value - headHeight.value);
 });
 
 function measureScrollHeight() {
@@ -664,12 +661,14 @@ function goSubscribe() {
       dismissible: true,
       reason: "home_subscribe_cta",
       onSuccess: () => {
-        uni.navigateTo({ url: "/pages/subscribe/index" });
+        // 订阅页是 tabBar 页 —— navigateTo 到 tab 页会直接报错
+        // 「can not navigateTo a tabbar page」，必须走 switchTab
+        switchTabPage("/pages/subscribe/index");
       },
     });
     return;
   }
-  uni.navigateTo({ url: "/pages/subscribe/index" });
+  switchTabPage("/pages/subscribe/index");
 }
 
 // ── 搜索 ────────────────────────────────────────────────────────
@@ -851,8 +850,6 @@ onMounted(() => {
   statusBarHeight.value = getStatusBarHeight();
   // 面板顶部 = 状态栏高度 + 导航行高度(约 72px) + 少量间距
   noticeBtnTop.value = statusBarHeight.value + 72;
-  // 先量 TabBar（写死 80 会让列表底部与 TabBar 之间出现空白）
-  measureTabBarHeight();
   void nextTick(() => measureScrollHeight());
   // ⚠️ 这里不要调 reloadFeed：uni-app 的页面生命周期是 onLoad → onShow → onReady → mounted，
   // onShow 必然先于 onMounted 触发，两处都拉就是首屏打两遍。

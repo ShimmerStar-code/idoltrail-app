@@ -50,7 +50,6 @@
         <scroll-view
           scroll-y
           class="scroll-body"
-          :style="{ paddingBottom: tabBarHeight + 'px' }"
           :scroll-into-view="scrollAnchorId"
           @scroll="onVirtualScroll"
           @scrolltolower="onScrollLower"
@@ -196,8 +195,6 @@
           </template>
         </scroll-view>
       </template>
-
-      <TabBar :current="2" />
     </view>
 
     <!-- 城市选择 sheet（复用 CityPicker） -->
@@ -220,7 +217,6 @@ import ScheduleCalendar, {
 } from "@/components/Subscribe/ScheduleCalendar.vue";
 import EventCard from "@/components/EventCard/index.vue";
 import LoginPrompt from "@/components/LoginPrompt/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import CityPicker from "@/components/CityPicker/index.vue";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
@@ -235,7 +231,6 @@ import { onShow } from "@dcloudio/uni-app";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { getStatusBarHeight } from "@/utils/system";
 import { switchTabPage } from "@/utils/pages";
-import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { addToSystemCalendar } from "@/utils/calendar";
 import { track } from "@/utils/analytics";
 import { ANALYTICS_EVENTS } from "@/constants/analytics";
@@ -320,8 +315,6 @@ onMounted(async () => {
   } catch (e) {
     /* 忽略 */
   }
-  // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
-  measureTabBarHeight();
   // 字典预加载（不 await，避免阻塞首屏）
   dictStore.ensureLoaded(["event_type"]).catch(() => {
     /* 静默失败，picker 兜底空数组 */
@@ -508,9 +501,8 @@ function onEventStatusChange(s: "ongoing" | "expired") {
  *   让用户自己去搜、自己挑，比这里再塞一个选择器更顺。
  *
  * 用 switchTabPage 而不是 navigateTo：
- *   偶像页是 tab 页（页内自绘 TabBar，pages/artist/list），
- *   navigateTo 会把一个带 TabBar 的页面压到本页之上，底部出现两条 TabBar。
- *   switchTabPage 走的是 tab 语义：目标页已在栈中就回退过去，否则 reLaunch。
+ *   偶像页是 tab 页（原生 tabBar，pages/artist/list），navigateTo 到 tab 页
+ *   会直接报错「can not navigateTo a tabbar page」，必须走 switchTab。
  */
 function onAddArtist() {
   switchTabPage("/pages/artist/list");

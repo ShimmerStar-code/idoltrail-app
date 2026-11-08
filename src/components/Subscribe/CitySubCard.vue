@@ -212,9 +212,9 @@ function pick(code: string) {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  /* 必须高于 TabBar(999)：两者同值时按 DOM 顺序决胜，TabBar 在模板里靠后，
-   * 会压住这个遮罩 —— 现象是选择器面板底部被导航栏盖住、点不到。
-   * 取 1000 即可，仍远低于 popup(9999) 与全局 toast(10000)。 */
+  /* 原生 tabBar 由原生层渲染，层级高于前端元素 —— 遮罩盖不到它，
+   * 但也正因如此选择器面板本来就落在 tabBar 上沿，不会被压住。
+   * 仍取 1000（高于页面内固定元素），远低于 popup(9999) 与全局 toast(10000)。 */
   z-index: 1000;
 }
 .picker-panel {
@@ -222,8 +222,9 @@ function pick(code: string) {
   background: #fff;
   border-radius: 24rpx 24rpx 0 0;
   padding: 16rpx 0 0;
-  /* 底部padding = tabBar高度(~100rpx) + iOS安全区，让滚动内容不被遮挡 */
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 100rpx);
+  /* 底部 padding 只留 iOS 安全区：原生 tabBar 不占页面视口，
+   * 面板底边已经在 tabBar 上沿，无需再垫一层 tabBar 高度 */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16rpx);
 }
 .picker-scroll {
   /* 最多显示 6 个选项高度可见，剩余滚动 */

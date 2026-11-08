@@ -277,7 +277,28 @@ Android 启动图是**原生层**资源（Activity 的 `windowBackground`），�
 
 ### 页面结构
 
-- `src/pages.json` **不声明原生 tabBar**，底部导航由页面内 `<TabBar>` 自绘，切换走 `switchTabPage()`。
+- `src/pages.json` **声明原生 tabBar**（4 个 tab：演出 / 偶像 / 订阅 / Me），
+  图标是 `src/static/icons/tabbar/*.png`（原生只认位图，SVG 不渲染）。
+  - 原生 tabBar 由**原生层**渲染：底层引擎在 JS 初始化前就渲染好，
+    且 tab 页展现过一次后**保留在内存**，再次切换只触发 `onShow` 不再触发 `onLoad`
+    —— 不销毁重建 webview，这是「切 tab 卡顿」的根治办法。
+  - 跳 tab 页**只能**用 `uni.switchTab`（封装在 `src/utils/pages.ts` 的
+    `switchTabPage()`）。`navigateTo` / `redirectTo` 到 tab 页会直接报错
+    「can not navigateTo a tabbar page」；`reLaunch` 能跳但会清空页面栈并重建
+    tab 页，把保活优势全丢掉。
+  - `switchTab` 的 url **不能带参数**（query 会被静默裁掉），`switchTabPage()`
+    已统一剥掉。
+  - **原生 tabBar 的高度不在页面视口里** —— 内容区止于 tabBar 上沿，
+    `getWindowInfo().windowHeight` 已经减掉了它。
+    所以页面**不需要**加 tabBar 高度的底部 padding（除非给 tabBar 配 `blurEffect`，
+    那会进入 cover 模式，此时才需要自己垫）。
+  - 非 tabBar 页（`navigateTo` 上去的二级页）**不显示** tabBar。
+  - 图标由 `scripts/gen-tabbar-icons.mjs` 从 SVG 生成（改 SVG 造型后需重跑）：
+    ```bash
+    npm i @resvg/resvg-js --no-save
+    node scripts/gen-tabbar-icons.mjs
+    ```
+    产物已入库，正常开发不需要跑。
 - **新页面必须用 `<PageLayout>` 包裹**。`LoginModal` / `PrivacyPopup` / `NotificationPromptModal` 由 `PageLayout` 挂载，不在 `App.vue` 的 template 里。
 - 分包：`pages/event`、`pages/place`、`pages/search`、`pages/agreement`、`pages/admin`。
 

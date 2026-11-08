@@ -83,7 +83,6 @@
       <scroll-view
         scroll-y
         class="scroll-body"
-        :style="{ paddingBottom: tabBarHeight + 'px' }"
       >
         <!-- 菜单 -->
         <view class="menu-section">
@@ -141,8 +140,6 @@
           </view>
         </view>
       </scroll-view>
-
-      <TabBar :current="3" />
     </view>
   </PageLayout>
 </template>
@@ -150,15 +147,13 @@
 <script setup lang="ts">
 import { userApi } from "@/api/user";
 import PageLayout from "@/components/PageLayout/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import { useUserStore } from "@/stores/user";
 import { getNavBarMetrics } from "@/utils/system";
-import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { getUserAvatarSrc } from "@/utils/avatar";
 import { DONATE_ENABLED } from "@/utils/env";
 import { interestTags } from "@/constants/interests";
 import { onShow } from "@dcloudio/uni-app";
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 const statusBarHeight = ref(20);
 const userStore = useUserStore();
 const user = computed(() => userStore.user);
@@ -174,11 +169,6 @@ const genderIcon = computed(() => {
 
 // 用户头像：走统一入口（utils/avatar.ts），默认图按性别取本地静态资源
 const userAvatarSrc = computed(() => getUserAvatarSrc(user.value ?? undefined));
-
-onMounted(() => {
-  // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
-  measureTabBarHeight();
-});
 
 onShow(async () => {
   const metrics = getNavBarMetrics();
