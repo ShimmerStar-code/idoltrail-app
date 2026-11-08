@@ -152,6 +152,7 @@ import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import { getStatusBarHeight } from "@/utils/system";
+import { perfMark } from "@/utils/perf";
 import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onShow, onHide, onUnload } from "@dcloudio/uni-app";
@@ -230,6 +231,7 @@ watch(searchActive, (val) => {
 });
 
 onMounted(() => {
+  perfMark('artist:onMounted')
   statusBarHeight.value = getStatusBarHeight();
   // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
   measureTabBarHeight();
@@ -239,11 +241,12 @@ onMounted(() => {
   if (userStore.isLoggedIn) {
     tasks.push(subscribeStore.fetchMySubscribedIds());
   }
-  Promise.all(tasks);
+  Promise.all(tasks).then(() => perfMark('artist:dataReady'));
 });
 
 // 每次回到 tab：新鲜期内静默跳过，不触发骨架屏
 onShow(() => {
+  perfMark('artist:onShow')
   store.fetchGrouped();
 });
 

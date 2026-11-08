@@ -276,6 +276,7 @@ import { locateCity } from "@/utils/location";
 import { useVirtualList } from "@/composables/useVirtualList";
 import { EVENT_SORT_OPTIONS, type EventSort } from "@/api/event";
 import { track } from "@/utils/analytics";
+import { perfMark } from "@/utils/perf";
 import { ANALYTICS_EVENTS } from "@/constants/analytics";
 
 const homeStore = useHomeStore();
@@ -914,6 +915,7 @@ onPageScroll(() => {
 
 // 切走再回（从订阅页/详情页返回）：按当天日期重判过期 + 补拉 feed 与订阅态
 onShow(() => {
+  perfMark('home:onShow')
   nowTick.value++; // 触发 feedEvents 重新过滤（跨天回到本页也能即时剔除新过期的"售票中"）
   // 埋点：首页曝光（每次回到首页都记一次，反映真实的活跃频次）
   track(ANALYTICS_EVENTS.HOME_VIEW, {
