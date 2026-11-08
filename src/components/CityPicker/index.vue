@@ -117,6 +117,7 @@ import { regionApi, type RegionItem } from "@/api/region"
 import { formatCity, ALL_CITIES_META, HOT_CITIES } from "@/constants/cities"
 import HighlightText from "@/components/SearchOverlay/HighlightText.vue"
 import { locateCity } from "@/utils/location"
+import { useHotStore } from "@/stores/hot"
 
 interface CityOption {
   id: string        // 用于 isSubscribed 判断；动态模式下复用英文名
@@ -151,6 +152,9 @@ const totalCount     = ref(0)    // 总数量
 const loadingMore    = ref(false) // 是否正在加载更多
 const hasMore        = computed(() => allCities.value.length < totalCount.value) // 是否还有更多
 
+// 运营配置的热门城市（后台可配，拉不到时回落到内置名单）
+const hotStore = useHotStore()
+
 // 弹层动态样式：键盘弹起时上移 + 压缩最大高度，收起时还原
 const popupStyle = computed(() => {
   const kh = keyboardHeight.value
@@ -161,8 +165,23 @@ const popupStyle = computed(() => {
   }
 })
 
-// 热门城市：从当前 allCities 中筛选出 HOT_CITIES 定义的城市
-const hotCities = computed(() => {
+// 热门城市：优先用运营在后台配置的名单，拉不到再回落到内置的 HOT_CITIES。
+//
+// 为什么不直接用 allCities 过滤 HOT_CITIES：
+//   内置名单是写死的 13 个城市，运营想换一批只能改代码发版；
+//   而且过滤口径依赖 allCities —— 当前筛选下没有活动的城市会被整条滤掉，
+//   运营配好的热门城市可能一个都显示不出来。
+// 运营配置的名单不按 allCities 过滤：热门入口的意义就是「跳到那边看看」，
+// 哪怕当前筛选下那个城市没有活动，也应该能被看到和点到。
+const hotCities = computed<CityOption[]>(() => {
+  const configured = hotStore.cityOptions
+  if (configured.length) {
+    return configured.map((c) => ({
+      id: c.id,
+      displayName: c.displayName,
+      region: "",
+    }))
+  }
   const all = allCities.value
   if (!all.length) return []
   return HOT_CITIES.map((zhName) => all.find((c) => c.displayName === zhName)).filter(Boolean) as CityOption[]
@@ -214,6 +233,9 @@ watch(() => props.visible, async (v) => {
   // 每次打开都清掉上一轮的定位提示
   locateMsg.value = "";
   locateError.value = false;
+
+  // 后台配置的热门城市：拉取不阻塞弹层显示（失败时用内置名单兜底）
+  hotStore.load();
 
   // 优先使用父组件传入的动态城市列表（/events/cities 接口结果）
   if (props.availableCities && props.availableCities.length > 0) {
