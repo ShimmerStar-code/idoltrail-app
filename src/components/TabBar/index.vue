@@ -59,17 +59,29 @@ function switchTab(path: string, i: number) {
   flex-direction: column;
   align-items: center;
   gap: 6rpx;
+  /* 按下反馈：底栏只有 4 个入口，点不中的问题多半是「不知道按没按中」 */
+  transition: opacity 0.12s;
 }
+.tab-item:active {
+  opacity: 0.55;
+}
+/*
+ * 图标容器 60rpx。
+ *
+ * SVG 源文件是 32×32 viewBox，图形只占 x/y 5~27（22/32 ≈ 69%），
+ * 所以「容器 60rpx」渲染出来的实际图形约 41rpx ≈ 20.5pt ——
+ * 之前的 44rpx 容器实际图形只有 30rpx ≈ 15pt，点不准是必然的。
+ */
 .icon-wrap {
-  width: 44rpx;
-  height: 42rpx;
+  width: 60rpx;
+  height: 60rpx;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.icon { width: 44rpx; height: 44rpx; }
+.icon { width: 60rpx; height: 60rpx; }
 .tab-text {
-  font-size: 22rpx;
+  font-size: 26rpx;
   color: #111;
   line-height: 1;
 }
