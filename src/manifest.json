@@ -60,7 +60,12 @@
                     "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
-                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>"
+                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+                    /* 写入系统日历（订阅页「我的日程 → 加入日历」）。
+                       运行时权限，只在用户主动点「加入日历」时才需要，
+                       写不进时会提示去系统设置授权，见 src/utils/calendar.ts。 */
+                    "<uses-permission android:name=\"android.permission.WRITE_CALENDAR\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_CALENDAR\"/>"
                 ],
                 "permissionExternalStorage" : {
                     /* request:none 与下方 permissions 列表一致：本 App 不读写公共存储，

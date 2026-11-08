@@ -150,6 +150,42 @@
               @openRelated="onOpenCityRelated"
             />
           </template>
+          <!-- ── Tab 3 日程 ── -->
+          <template v-if="activeTab === 3">
+            <view class="tab-tip">{{ TAB_TIPS[3] }}</view>
+            <ScheduleCalendar
+              v-if="scheduleItems.length"
+              :items="scheduleItems"
+              :month="scheduleMonth"
+              :selected="scheduleDate"
+              @update:month="scheduleMonth = $event"
+              @pick-day="onPickDay"
+            />
+            <view v-else class="empty">
+              还没有可放进日程的订阅
+            </view>
+
+            <!-- 选中日的活动 -->
+            <view v-if="dayItems.length" class="schedule-list">
+              <view
+                v-for="it in dayItems"
+                :key="it.id"
+                class="schedule-item"
+              >
+                <view class="schedule-item__main">
+                  <text class="schedule-item__title">{{ it.title }}</text>
+                  <text class="schedule-item__meta">
+                    {{ it.startDate }}
+                    <text v-if="it.city"> · {{ it.city }}</text>
+                  </text>
+                </view>
+                <view class="schedule-item__btn" @click="onAddToCalendar(it)">
+                  <uni-icons type="calendar" size="14" color="#8A5600" />
+                  <text class="schedule-item__btn-text">加入日历</text>
+                </view>
+              </view>
+            </view>
+          </template>
         </scroll-view>
       </template>
 
@@ -171,6 +207,9 @@
 import PageLayout from "@/components/PageLayout/index.vue";
 import ArtistGridCell from "@/components/Subscribe/ArtistGridCell.vue";
 import CitySubCard from "@/components/Subscribe/CitySubCard.vue";
+import ScheduleCalendar, {
+  type ScheduleItem,
+} from "@/components/Subscribe/ScheduleCalendar.vue";
 import EventCard from "@/components/EventCard/index.vue";
 import LoginPrompt from "@/components/LoginPrompt/index.vue";
 import TabBar from "@/components/TabBar/index.vue";
@@ -179,12 +218,17 @@ import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { useDictionaryStore } from "@/stores/dictionary";
 import { GENRES } from "@/constants/genres";
+import { todayYMD } from "@/constants/eventMeta";
+import { formatCity } from "@/constants/cities";
 import type { ArtistCardVO, CityCardVO, EventCardVO } from "@/types/subscription";
 import type { Event } from "@/types/event";
 import type { DictOption } from "@/types/dictionary";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { getStatusBarHeight } from "@/utils/system";
+import { addToSystemCalendar } from "@/utils/calendar";
+import { track } from "@/utils/analytics";
+import { ANALYTICS_EVENTS } from "@/constants/analytics";
 import { useVirtualList } from "@/composables/useVirtualList";
 const userStore = useUserStore();
 const store = useSubscribeStore();
@@ -210,7 +254,7 @@ const eventStatus = ref<"ongoing" | "expired">("ongoing");
 // 活动列表分页尺寸，与下方 loadAllTabs / onScrollLower 保持一致
 const EVENT_PAGE_SIZE = 20;
 
-const tabs = ["偶像", "活动", "城市"];
+const tabs = ["偶像", "活动", "城市", "日程"];
 
 // 每个 tab 顶部的一句说明，回答「订阅这个到底会给我什么」。
 // 放在列表上方而不是 header 里：header 常驻不滚动，切 tab 会带动整块高度变化；
@@ -219,6 +263,7 @@ const TAB_TIPS = [
   "下列偶像关联的活动都将通知您",
   "已订阅的活动有变动时将通知您",
   "所选城市的新活动将通知您",
+  "订阅过的演出在这里排成日历，可一键加入系统日历",
 ];
 
 // 当前展示的活动列表（按 status 切）
@@ -336,6 +381,103 @@ function onTabChange(i: number) {
   activeTab.value = i;
   // 三个 tab 内容完全不同，共用滚动位置会让窗口化按错误的起点渲染
   scrollListToTop();
+  // 日程 tab 需要更完整的历史（默认每页只有 20 条，日历要覆盖整月），
+  // 进这个 tab 时再单独拉一次，不在进页面时就多打两个请求。
+  if (i === 3) void loadScheduleData();
+}
+
+// ── 日程（tab 3）─────────────────────────────────────────────────
+const todayYmdStr = todayYMD();
+const scheduleMonth = ref(todayYmdStr.slice(0, 7)); // YYYY-MM
+const scheduleDate = ref(todayYmdStr); // YYYY-MM-DD
+
+/**
+ * 订阅活动 → 日历条目
+ *
+ * 用后端下发的 first_event_date / last_event_date（真实场次日期），
+ * 不用 start_date / end_date —— 后者由后台 SyncEventDates 回写，存在陈旧值
+ * （实测有活动 start=end=2026-12-18，实际场次跨 10-30~12-18）。
+ * 缺失时退回 start_date（旧数据兜底）。
+ */
+const scheduleItems = computed<ScheduleItem[]>(() => {
+  const all = [...store.myEventsOngoing, ...store.myEventsExpired];
+  const out: ScheduleItem[] = [];
+  for (const vo of all) {
+    const start = vo.event.first_event_date || vo.event.start_date;
+    if (!start) continue;
+    // 结束日：真实最晚场次；缺 last_event_date 时用 end_date；
+    // 两者都没有就用 start_date（单日活动）
+    const end =
+      vo.event.last_event_date ||
+      vo.event.end_date ||
+      String(start).slice(0, 10);
+    // 城市：巡演显示「城市·N城」（如「北京·23城」），单城显示城市名。
+    // city 是后端下发的全量首城（最早那一场）。
+    const cityCount = vo.event.city_count ?? 0;
+    const cityName = vo.event.city
+      ? formatCity(vo.event.city)
+      : "";
+    const city =
+      cityCount > 1
+        ? cityName
+          ? `${cityName}·${cityCount}城`
+          : `${cityCount}城`
+        : cityName;
+    out.push({
+      id: vo.event.id,
+      title: vo.event.title,
+      startDate: String(start).slice(0, 10),
+      endDate: String(end).slice(0, 10),
+      city,
+    });
+  }
+  return out;
+});
+
+/** 选中日当天的活动（含跨天活动） */
+const dayItems = computed(() => {
+  const day = scheduleDate.value;
+  return scheduleItems.value.filter(
+    (it) => it.startDate <= day && day <= (it.endDate || it.startDate),
+  );
+});
+
+function onPickDay(date: string) {
+  scheduleDate.value = date;
+}
+
+/** 日程数据：进行中 + 已失效各 100 条（覆盖一整年的排期足够） */
+async function loadScheduleData() {
+  try {
+    await Promise.all([
+      store.fetchMyEvents("ongoing", 1, 100),
+      store.fetchMyEvents("expired", 1, 100),
+    ]);
+  } catch (e) {
+    console.warn("[subscribe] loadScheduleData failed", e);
+  }
+}
+
+/** 一键写入系统日历：给用户一个「不在 App 里也能被提醒」的理由 */
+async function onAddToCalendar(item: ScheduleItem) {
+  try {
+    await addToSystemCalendar({
+      title: item.title,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      location: item.city,
+      description: "来自 idoltrail App 的演出日程",
+    });
+    track(ANALYTICS_EVENTS.AGENDA_ADD, { event_id: item.id, ok: 1 });
+    uni.showToast({ title: "已加入系统日历", icon: "success" });
+  } catch (e: any) {
+    track(ANALYTICS_EVENTS.AGENDA_ADD, { event_id: item.id, ok: 0 });
+    uni.showToast({
+      title: e?.message || "写入失败，请检查日历权限",
+      icon: "none",
+      duration: 2500,
+    });
+  }
 }
 
 // 二级 segment（进行中 / 已失效）切换：列表整体替换，同样要归零
@@ -706,5 +848,56 @@ function voToEvent(vo: EventCardVO): Event {
   color: #aaa;
   padding: 80rpx 0;
   font-size: 26rpx;
+}
+
+/* ── 日程 tab ────────────────────────────────────────────────── */
+.schedule-list {
+  margin: 24rpx 30rpx 40rpx;
+}
+.schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(236, 236, 236, 1);
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.04);
+  padding: 24rpx 26rpx;
+  margin-bottom: 20rpx;
+}
+.schedule-item__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.schedule-item__title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-item__meta {
+  font-size: 24rpx;
+  color: #666;
+}
+.schedule-item__btn {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 64rpx;
+  padding: 0 20rpx;
+  border-radius: 32rpx;
+  background: rgba(254, 165, 0, 0.1);
+  border: 2rpx solid rgba(254, 165, 0, 0.55);
+  flex-shrink: 0;
+}
+.schedule-item__btn-text {
+  font-size: 24rpx;
+  color: #8a5600;
+  font-weight: 600;
 }
 </style>
