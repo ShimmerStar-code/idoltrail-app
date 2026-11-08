@@ -131,6 +131,7 @@ import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
 import { syncPushToken } from "@/composables/usePush";
 import { getStatusBarHeight } from "@/utils/system";
+import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onShow, onHide, onUnload } from "@dcloudio/uni-app";
 const store = useArtistStore();
@@ -138,7 +139,6 @@ const userStore = useUserStore();
 const subscribeStore = useSubscribeStore();
 const searchStore = useSearchStore();
 const statusBarHeight = ref(20);
-const tabBarHeight = ref(80);
 
 // 加载失败的头像 id 集合，失败后降级为 type/gender 默认头像
 const failedAvatarIds = reactive(new Set<string>());
@@ -202,6 +202,8 @@ watch(searchActive, (val) => {
 
 onMounted(() => {
   statusBarHeight.value = getStatusBarHeight();
+  // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
+  measureTabBarHeight();
 
   // 首次挂载：强制拉取已知国家（force=true），显示骨架屏等待首屏数据
   const tasks: Promise<unknown>[] = [store.fetchGrouped(9, true)];

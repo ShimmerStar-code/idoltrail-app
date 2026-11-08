@@ -226,6 +226,7 @@ import type { DictOption } from "@/types/dictionary";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { getStatusBarHeight } from "@/utils/system";
+import { tabBarHeight, measureTabBarHeight } from "@/utils/tabBar";
 import { addToSystemCalendar } from "@/utils/calendar";
 import { track } from "@/utils/analytics";
 import { ANALYTICS_EVENTS } from "@/constants/analytics";
@@ -247,7 +248,6 @@ const tagOptions = computed<DictOption[]>(() =>
 );
 
 const statusBarHeight = ref(20);
-const tabBarHeight = ref(80);
 const activeTab = ref(0); // 0 偶像 / 1 活动 / 2 城市
 const eventStatus = ref<"ongoing" | "expired">("ongoing");
 
@@ -311,6 +311,8 @@ onMounted(async () => {
   } catch (e) {
     /* 忽略 */
   }
+  // 实测 TabBar 高度（写死 80 会让内容底部多出一段留白）
+  measureTabBarHeight();
   // 字典预加载（不 await，避免阻塞首屏）
   dictStore.ensureLoaded(["event_type"]).catch(() => {
     /* 静默失败，picker 兜底空数组 */
