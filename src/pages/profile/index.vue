@@ -34,11 +34,16 @@
                 <text class="tag__text" :style="{ color: tag.color }">{{ tag.label }}</text>
               </view>
             </view>
+            <!--
+              贡献值：只用「星币图标 + 数字」表示，不带文字标签。
+              口径唯一 —— user_profiles.star_coins（情报被收录的记分，每条 10 分）。
+              原先这里并排显示了「星币 N」和「贡献值 M」两个数，
+              但 M 是捐赠累计金额（单位：分），与 N 量纲不同、视觉上无法区分，
+              已在后端 0074 迁移里整列停用，捐赠明细见后台「赞助记录」。
+            -->
             <view v-if="isLoggedIn" class="stats-row">
               <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
               <text class="stat-value">{{ user?.star_coins ?? 0 }}</text>
-              <text class="stat-label stat-gap">贡献值：</text>
-              <text class="stat-value">{{ user?.contribution ?? 0 }}</text>
             </view>
             <text v-else class="hint">登录后享受完整功能</text>
           </view>
@@ -430,17 +435,10 @@ function copyQQGroup() {
 .tag__text {
   font-size: 21rpx;
 }
-.stat-label {
-  font-size: 24rpx;
-  color: #444;
-}
 .stat-value {
   font-size: 24rpx;
   font-weight: 700;
   color: #ff8c00;
-}
-.stat-gap {
-  margin-left: 24rpx;
 }
 .hint {
   font-size: 24rpx;

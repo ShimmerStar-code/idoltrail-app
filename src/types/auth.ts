@@ -25,8 +25,13 @@ export interface User {
   birthday?: string       // "YYYY-MM-DD"
   nationality?: string
   bio?: string
+  /**
+   * 贡献值：众包情报被运营收录的记分，每条 10 分。
+   *
+   * 这是唯一的贡献值口径 —— 后端已于 0074 迁移停用旧的 contribution 列
+   * （捐赠累计金额，单位：分），两者量纲不同，并排展示会让用户无法理解。
+   */
   star_coins?: number
-  contribution?: number
   /** 兴趣标签（event_genre code），如 ["JPOP","KPOP"] */
   interests?: string[]
 }
