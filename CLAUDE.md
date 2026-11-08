@@ -551,6 +551,18 @@ wsl.exe -e bash -lc "cd '/mnt/c/Users/trunk/Desktop/shimmer-star/idoltrail/idolt
 `GOTOOLCHAIN=auto` 会按 `go.mod`（go 1.26.1）自动下载 toolchain，WSL 自带的 1.22.2 不用管。
 完整说明与坑见服务端仓 `CLAUDE.md` 的「本地工具链：Go 编译验证走 WSL」一节。
 
+### 真机测试走 Mobilerun CLI
+
+本机装了 **Mobilerun CLI v0.7.4**（`C:\Users\trunk\.local\bin\mobilerun.exe`，Python/uv），
+可以驱动**本机 USB 连着的 Android 真机**（serial `HMEUPN8XLJT8XWXS`，Android 14 / 1080×2460）。
+
+- 改完代码 → 推设备 → 上手点一遍 → 和服务端对账的完整流程、命令速查、
+  24 个功能点的测试步骤与服务端核对点，全部在
+  **[`docs/mobilerun-device-test.md`](docs/mobilerun-device-test.md)**。
+- 三个必记的坑：**控制台必须先设 `PYTHONUTF8=1`（否则 GBK 崩）**、
+  **测试期间必须 `adb shell svc power stayon true`（息屏后所有点击静默失效）**、
+  **测之前先 grep 设备上的 app-service.js 确认推的是最新代码**。
+
 ## 构建与发布
 
 CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试，打 `v*.*.*` tag 产出
