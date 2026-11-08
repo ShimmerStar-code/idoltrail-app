@@ -481,6 +481,13 @@ function voToEvent(vo: EventCardVO): Event {
     poster_url: vo.event.poster_url,
     start_date: vo.event.start_date,
     end_date: vo.event.end_date,
+    // 场次统计：巡演活动在这里要显示「共 N 场」，
+    // sessions 是前端用 brief.city 伪造的单场（后端只下发首场城市），
+    // 所以统计必须走后端下发的 session_count，不能用 sessions.length。
+    session_count: vo.event.session_count,
+    city_count: vo.event.city_count,
+    first_event_date: vo.event.first_event_date,
+    last_event_date: vo.event.last_event_date,
     sessions: vo.event.city
       ? ([{ city: vo.event.city, event_date: vo.event.start_date }] as any)
       : [],

@@ -12,6 +12,24 @@ export interface Event {
     place_name: string
     event_date?: string
   }[]
+  /**
+   * 该活动总场次数（后端下发，不受列表筛选影响）。
+   *
+   * ⚠️ 不能用 sessions.length 代替：后端按列表的 city/country 过滤 sessions，
+   * 城市筛选下 15 场巡演只剩 1 场，用 sessions.length 会把巡演显示成单场。
+   */
+  session_count?: number
+  /** 覆盖城市数，>1 表示巡演 */
+  city_count?: number
+  /** 最早/最晚场次日期（YYYY-MM-DD），比 events.start_date/end_date 可信 */
+  first_event_date?: string
+  last_event_date?: string
+  /**
+   * 首场城市（英文，如 Beijing）。
+   *
+   * 艺人详情接口的 events[] 不带 sessions，只能靠这个字段显示城市胶囊。
+   */
+  city?: string
   artists?: {
     artist_id?: string
     artist_name: string

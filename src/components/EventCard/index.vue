@@ -63,12 +63,26 @@
           lazy-load
         />
       </view>
-      <text
-        class="artist-name"
-        :style="artistNameStyle"
-      >
-      {{ artistLineText }}
-      </text>
+      <!-- 艺人名 + 场次徽标绑成一组：艺人名是 flex:1（省略号截断），
+           徽标紧跟其后，避免被 flex 撑到最右边贴住书签按钮 -->
+      <view class="head-info">
+        <text
+          class="artist-name"
+          :style="artistNameStyle"
+        >
+        {{ artistLineText }}
+        </text>
+        <!-- 场次徽标：多场次（巡演）才显示。
+             放在 head 区而不是 tags 行：tags 行已有 3 个胶囊，再加第 4 个会换行，
+             卡片高度就不再恒定，虚拟列表（useVirtualList）的固定高度假设会失效。 -->
+        <view
+          v-if="sessionBadgeText"
+          class="session-badge"
+          :style="{ background: sessionBadgeBg, color: theme.ink }"
+        >
+          <text class="session-badge-text">{{ sessionBadgeText }}</text>
+        </view>
+      </view>
       <view class="head-actions">
         <!-- 非 PUBLISHED 状态才显示状态徽章 -->
         <view
@@ -108,8 +122,7 @@
         <view v-if="cityText" class="event-card-tag">
           <uni-icons type="location" size="13" :color="chipIconColor" />
           <text class="event-card-tag-text">{{ cityText }}</text>
-        </view>
-        <view v-if="dateText" class="event-card-tag">
+        </view>        <view v-if="dateText" class="event-card-tag">
           <uni-icons type="calendar" size="13" :color="chipIconColor" />
           <text class="event-card-tag-text">{{ dateText }}</text>
         </view>
@@ -132,7 +145,7 @@ import {
   STATUS_BADGE_STYLE,
   effectiveEventStatus,
 } from "@/constants/eventMeta";
-import { resolveArtistTheme } from "@/constants/artistTheme";
+import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { getArtistAvatarSrc } from "@/utils/avatar";
@@ -218,22 +231,103 @@ const artistLineText = computed(() => {  const list = artists.value;
 });
 
 // ── 信息文本 ──
-const cityText = computed(() => {
-  const en = props.event.sessions?.[0]?.city || "";
-  return en ? formatCity(en) : "";
+
+/**
+ * 场次数。
+ *
+ * 用后端下发的 session_count，不用 sessions.length：
+ * 后端按列表的 city/country 过滤 sessions，首页「本地」视图就是按城市筛，
+ * 15 场巡演过滤后只剩 1 条，用 sessions.length 会显示成「共 1 场」。
+ * session_count 缺失时（老缓存 / 艺人详情页等未下发该字段的接口）退回 sessions.length。
+ */
+const sessionCount = computed(() => {
+  const n = props.event.session_count;
+  if (typeof n === "number" && n > 0) return n;
+  return props.event.sessions?.length || 0;
 });
 
+/**
+ * 场次徽标文案。
+ *
+ * 只有多场次才显示：单场次活动标「共 1 场」是噪音。
+ * 「共 N 场」用的是中文计数习惯（N 场），不写「场次 N」以免与详情页的
+ * 「场次 1 / 场次 2」标签混淆（那边是导航序号，这边是总量）。
+ */
+const sessionBadgeText = computed(() => {
+  const n = sessionCount.value;
+  if (n <= 1) return "";
+  return `共${n}场`;
+});
+
+/** 徽标底色：主题色的极浅色调，与卡片外层底色区分开 */
+const sessionBadgeBg = computed(() => withAlpha(theme.value.ink, 0.12));
+
+/**
+ * 城市胶囊文案。
+ *
+ * 巡演活动显示「城市·N城」，如「北京·23城」：
+ * 只写「多城·23城」丢掉了最关键的信息 —— 用户最先关心的是「我这边有没有」。
+ *
+ * 城市取值优先级：
+ *   1. sessions[0].city —— 后端按列表的 city 筛选过 sessions，所以在首页
+ *      「本地」视图里它就是**用户定位所在的城市**（列表既然按我的城市筛了，
+ *      这个活动必然在我这城有场次）。无筛选时它是时间上最早那一场的城市。
+ *   2. event.city —— 艺人详情接口不返回 sessions，只能靠后端下发的全量首城。
+ */
+const cityText = computed(() => {
+  const cityCount = props.event.city_count ?? 0;
+  const en = props.event.sessions?.[0]?.city || props.event.city || "";
+  const city = en ? formatCity(en) : "";
+  if (cityCount > 1) return city ? `${city}·${cityCount}城` : `${cityCount}城`;
+  return city;
+});
+
+/**
+ * 日期胶囊。
+ *
+ * 口径与「共 N 场」「多城」徽标保持一致 —— 都描述**整个活动**，不是列表
+ * 筛选后落在当前城市的那一场：
+ *   · 城市筛选下后端的 sessions 只含该城场次，用它算日期会得出「北京 12-18」，
+ *     而徽标却写「共 15 场 / 多城·15城」→ 自相矛盾；
+ *   · 所以优先用后端下发的 first_event_date / last_event_date（真实场次日期，
+ *     不受筛选影响）。
+ * 老缓存 / 未下发该字段的接口（艺人详情、订阅页）退回 sessions 的日期跨度，
+ * 再退回 events.start_date / end_date（后者由后台 SyncEventDates 回写，存在陈旧值）。
+ */
 const dateText = computed(() => {
-  const start = props.event.sessions?.[0]?.event_date || props.event.start_date;
-  const end   = props.event.end_date;
-  if (!start) return "";
-  const s = String(start).slice(0, 10);
-  const e = end ? String(end).slice(0, 10) : "";
-  if (!e || e === s) return s; // 单场次：保留完整 YYYY-MM-DD
+  const first = props.event.first_event_date;
+  const last = props.event.last_event_date;
+  if (first) {
+    const s = String(first).slice(0, 10);
+    const e = last ? String(last).slice(0, 10) : "";
+    return formatDateRange(s, e);
+  }
+
+  const dates = (props.event.sessions || [])
+    .map((s) => s.event_date)
+    .filter((d): d is string => !!d)
+    .map((d) => String(d).slice(0, 10))
+    .sort();
+  if (dates.length) {
+    const s = dates[0];
+    const e = dates.length > 1 ? dates[dates.length - 1] : "";
+    return formatDateRange(s, e);
+  }
+
+  const sd = props.event.start_date;
+  if (!sd) return "";
+  const s = String(sd).slice(0, 10);
+  const ed = props.event.end_date ? String(props.event.end_date).slice(0, 10) : "";
+  return formatDateRange(s, ed);
+});
+
+/** YYYY-MM-DD 区间格式化：同年省略年份、起止同日只留一天 */
+function formatDateRange(s: string, e: string): string {
+  if (!e || e === s) return s; // 单日：保留完整 YYYY-MM-DD
   // 同年范围：省略年份 → MM-DD ~ MM-DD（节省空间，避免换行）
   if (s.slice(0, 4) === e.slice(0, 4)) return `${s.slice(5)} ~ ${e.slice(5)}`;
   return `${s} ~ ${e}`; // 跨年：保留完整日期
-});
+}
 
 const typeText = computed(
   () => EVENT_TYPE_LABEL[props.event.type] || props.event.type || "",
@@ -357,6 +451,7 @@ async function onBookmarkTap() {
 
 .artist-name {
   flex: 1;
+  min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
   /* 底色已改为浅色主题底，白字不可读；实际颜色由内联 theme.ink 覆盖 */
@@ -366,11 +461,32 @@ async function onBookmarkTap() {
   white-space: nowrap;
 }
 
+/* 艺人名 + 场次徽标 */
+.head-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
 .head-actions {
   display: flex;
   align-items: center;
   gap: 14rpx;
   flex-shrink: 0;
+}
+
+/* 场次徽标：多场次（巡演）才出现 */
+.session-badge {
+  flex-shrink: 0;
+  border-radius: 20rpx;
+  padding: 4rpx 14rpx;
+}
+.session-badge-text {
+  font-size: 20rpx;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 /* 状态徽章 */

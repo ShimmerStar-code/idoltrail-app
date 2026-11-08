@@ -64,5 +64,14 @@ export interface ArtistDetail extends Artist {
     start_date: string | null
     end_date: string | null
     organizer: string
+    /** 该活动总场次数（后端下发，不受列表筛选影响） */
+    session_count?: number
+    /** 覆盖城市数，>1 表示巡演 */
+    city_count?: number
+    /** 最早/最晚场次日期（YYYY-MM-DD） */
+    first_event_date?: string
+    last_event_date?: string
+    /** 首场城市（英文，如 Beijing）——该接口不返回 sessions，只能靠它显示城市胶囊 */
+    city?: string
   }[]
 }

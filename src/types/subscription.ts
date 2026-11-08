@@ -53,6 +53,13 @@ export interface EventBrief {
   genre: string
   type: string   // 活动类型：event_type_ref.type_code（CONCERT / FESTIVAL / FAN_MEETING / ANIME_EXPO / CONCERT_HALL）
   status?: string // 存储状态 PUBLISHED/ENDED/CANCELLED...（卡片按其 + end_date 派生“已结束”）
+  /** 该活动总场次数（后端下发，不受列表筛选影响）。缺失时前端退回 sessions.length */
+  session_count?: number
+  /** 覆盖城市数，>1 表示巡演 */
+  city_count?: number
+  /** 最早/最晚场次日期（YYYY-MM-DD） */
+  first_event_date?: string
+  last_event_date?: string
   artist?: {
     id: string
     name: string
