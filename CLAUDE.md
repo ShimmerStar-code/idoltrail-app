@@ -192,34 +192,69 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 
 Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面。
 
-- `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 图片比例 ≠ 屏幕比例就**必然拉伸变形**。
-  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：旧图 1080×1882 被纵向拉伸
+- `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 普通 PNG 图比例 ≠ 屏幕比例就**必然拉伸变形**。
+  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：旧整屏图 1080×1882 被纵向拉伸
   **1.307 倍**（2460/1882）铺满全屏，logo 与文字明显拉长 —— 这就是「启动图畸变」的根因。
-- **解法：直接用设计交付的成品整屏图（普通 PNG），并让每个密度桶选该桶最常见的屏幕比例。**
-  - 残余畸变 = (屏高/屏宽) ÷ (图高/图宽) − 1，**只与比例有关，与密度桶无关**
-    （密度缩放等比，在相对畸变里抵消；真机反解：K40 上垂直 0.7640 / 水平 0.9980）。
-  - 三档映射（`app-plus.distribute.splashscreen.android` 只有 hdpi/xhdpi/xxhdpi 三档，
-    见 `uniapp-manifest-schema.json`）：
-    | 桶 | 图 | 覆盖屏幕 | 最大畸变 |
-    |----|----|---------|---------|
-    | xxhdpi | `splash_1080x2400.png`（20:9） | 1080×2340 / 2400 / 2460 / 2520、1440×3120 / 3200 | ≤5% |
-    | xhdpi | `splash_720x1440.png`（18:9） | 720×1280 / 1440 / 1600 | 11% |
-    | hdpi | `splash_480x800.png`（16:9） | 480×800 / 854 | 6.7% |
-  - Redmi K40 上：相对畸变 **1.0250**（纵向 2.5%），标志区纵横比形变 **2.4%**，
-    肉眼基本看不出（旧方案是 30.7% / 23.5%）。
-- **零像素改动是硬红线**。三张图是设计交付包 `fullscreen/` 里的**原件**，md5 锁定：
-  `d26f4f4fe168071cc0db7dd72d506a72` / `f937aba82c8de3823db284b08ae9996d` /
-  `72ac986ed852eef0c41fcff2c910f68a`。
-  `npm run check:splash` 会校验 manifest 三档路径 + 实际尺寸 + md5，任何改动直接非零退出。
-- **不要再改成 `.9.png` 或自行合成**：九宫格会把设计稿整幅插画拆成「固定区 + 拉伸区」，
-  底部插画被拉长、标志区位置漂移，效果反而更差（上一版就是这么翻车的）。
-  设计交付包 README 里「不要把整屏 PNG 直接设为 windowBackground」的警告针对的是
-  **自绘/合成**图；本方案图与屏比例本就接近，残余畸变 ≤5% 可接受。
-- `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的这组图**整个不生效**）；
+- **解法：`.9.png`（九宫格）**，官方明确支持
+  （<https://uniapp.dcloud.net.cn/tutorial/app-splashscreen.html>「Android平台同时支持使用.9.png图片…
+  可以指定特定的区域进行拉伸而不失真」）。
+  - 固定区 = 品牌锁定图 `splash_brand.png`（原件，200dp，**不缩放不重采样**）→ 1:1 不变形；
+  - 可拉伸区 = 品牌区之外的渐变底 → 多余空间只由可拉伸区按各自源尺寸比例瓜分；
+  - 上下留白相等 ⇒ 品牌在**任何**机型上都居中（K40 实测居中偏差 x 0.0px / y ≤0.5px）。
+  - 数值：品牌形变 **0%**、品牌像素 Δ0、渐变接缝 Δ1/255（普通 PNG 方案是 2.5%~5% 形变）。
+- **底色按 AOSP `GradientDrawable` 语义从 res 渲染**（`res/drawable/splash_background.xml`）：
+  - `angle=315` → `Orientation.TL_BR`（渐变线 = 矩形对角线 `(0,0)→(w,h)`，
+    `t = (x·w + y·h)/(w²+h²)`）；
+  - `centerColor` 停靠点 = `mCenterX != 0.5 ? mCenterX : mCenterY` = **0.30**。
+  - 底色只取交付视觉里真实出现的 `#FFE39A → #FCA8B3`（粉位仍在 30%）。
+    设计师交付图（`preview/android_layerlist_1080x1920.png` 与 `fullscreen/` 天空区）
+    的底色**深紫占比 0.0%**，`#9C5B87` 只出现在底部插画里；
+    若按 XML 字面再叠 `endColor=#9C5B87`，右下角会铺满深紫（实测「亮度 < 140」的像素
+    占 **17.3%**，平均亮度从 200.6 掉到 175.5），与交付视觉不符 —— 别再加蒙层/调色去救。
+- **文件组织（云打包约定）**：`app-icons/splash-9patch/{hdpi,xhdpi,xxhdpi}/splash.9.png`
+  - 文件名必须以 **`.9.png` 结尾**：aapt2 只对 `*.9.png` 编译 nine-patch chunk（资源名仍是
+    `drawable/splash`）；改名成 `splash.png` 会丢 chunk → 露出 1px 黑边并被拉伸。
+  - 与官方离线打包约定一致（`res/drawable-xxxhdpi/splash.9.png`）。
+  - ⚠️ **云打包取的不是 `app-icons/`，而是 HBuilderX 的工作缓存**
+    `dist/cache/wgt/<appid>/.manifest/splash-android-<桶>.9.png`。
+    该缓存**只在 manifest 里的路径变化时才会重新拷贝**——同路径文件内容改了它不刷新，
+    于是「明明改了启动图，云打包还是用旧文件」（本次就是这样：修好边框后云打包仍报
+    `too many padding sections on bottom border`）。
+    **改完启动图必须手动同步**：
+    ```bash
+    for b in hdpi xhdpi xxhdpi; do cp "app-icons/splash-9patch/$b/splash.9.png" \
+      "dist/cache/wgt/__UNI__F1F9279/.manifest/splash-android-$b.9.png"; done
+    ```
+    （appid 以 `src/manifest.json` 的 `appid` 为准；同步后用 md5 核对缓存里的文件。）
+    `npm run build:app`（CLI）**不产** `.manifest`，这个目录只有 GUI 打包流程才会生成。
+- **九宫格边框语义（aapt2 规则，踩过坑）**：
+  - **上边**黑段 = 水平可拉伸的**列**（stretchX），**左边**黑段 = 垂直可拉伸的**行**（stretchY）
+    —— 这两边**允许多段**（品牌图居中，左右/上下各一段）；
+  - **下边/右边**黑段 = 内容区 **padding**，aapt2 **最多允许 1 段**；
+    本图内容铺满整张、没有 padding，所以这两边**一个黑像素都不能画**。
+  - ⚠️ 早期版本把黑段同时画在「顶+底 / 左+右」四边 → **云打包直接失败**：
+    `error: too many padding sections on bottom border.` + `error: file failed to compile.`
+    （底边两段黑 = 两段 padding，aapt2 拒绝）
+- **字节级锁定是硬红线**，`npm run check:splash` 校验：manifest 三档路径 + PNG 实际尺寸
+  （内容 + 2px 边框）+ md5 + **九宫格边框标记**（上边黑段 = 水平可拉伸列、
+  左边黑段 = 垂直可拉伸行，且恰好等于「品牌区之外」；下边/右边必须无黑；角点透明）。任何改动非零退出。
+  - md5：`2f06bd1d80c280b193bea368df9db372`（hdpi 482×802）/
+    `6142ee671c292047e148f4ff535ffe7b`（xhdpi 722×1442）/
+    `828d45347d6f48190345f0d3a0dc2723`（xxhdpi 1082×2402）
+  - ⚠️ **整圈描黑 = 整张图都变可拉伸区** → 品牌图跟着变形。边框黑段只能画在「品牌区之外」。
+  - **产物由脚本生成**：`python scripts/build-splash-9patch.py --design "<交付素材根目录>"`
+    （需 Pillow；素材目录含 `android/app/src/main/res/drawable-{hdpi,xhdpi,xxhdpi}/splash_brand.png`）。
+    脚本内置 aapt2 等价自检（底/右黑段数、顶/左黑段、角点透明），并打印新 md5 → 填回
+    `scripts/check-splash.mjs` 的 `EXPECTED`。**改启动图必须走脚本，不要手改 PNG**。
+- `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的组图**整个不生效**）；
   iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）。
-- `androidNavigationBarColor: "#9C5B87"` 取源图底部主色，防启动时导航栏闪白。
+- `androidNavigationBarColor: "#FCA8B3"` 取启动图底部主色，防启动时导航栏闪白。
 - ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」）。
   本地运行与 `npm run build:app` 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
+  真机验收点：①无 1px 黑边 ②品牌不变形 ③品牌居中 ④底色与设计稿一致。
+  若出现黑边 → 云打包把文件改名成了 `splash.png`，改回 `.9.png` 命名即可。
+- 九宫格版对应设计交付包的**方案 B**（渐变底 + 居中锁定图，**不含底部插画**）；
+  含插画的整屏图属方案 A，只能靠 JS 层自绘启动页（cover 裁切）落地。
 
 ### 页面结构
 
