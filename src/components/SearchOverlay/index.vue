@@ -62,6 +62,8 @@
 import { useSearchStore } from '@/stores/search'
 import { formatCity } from '@/constants/cities'
 import { artistGenderLabel, artistTypeLabel } from '@/constants/artistLabels'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 import HighlightText from './HighlightText.vue'
 
 // 模板里直接用 keyword 即可（<script setup> 会把 props 暴露给模板），
@@ -76,9 +78,18 @@ function formatDate(d: string) {
   return d ? d.slice(0, 10).replace(/-/g, '.') : ''
 }
 
-function toArtist(id: string) { uni.navigateTo({ url: `/pages/artist/detail?id=${id}` }); emit('navigate') }
-function toEvent(id: number)  { uni.navigateTo({ url: `/pages/event/detail?id=${id}` }); emit('navigate') }
-function toPlace(id: string)  { uni.navigateTo({ url: `/pages/place/detail?id=${id}` }); emit('navigate') }
+function toArtist(id: string) {
+  track(ANALYTICS_EVENTS.SEARCH_RESULT_CLICK, { type: 'artist', id })
+  uni.navigateTo({ url: `/pages/artist/detail?id=${id}` }); emit('navigate')
+}
+function toEvent(id: number) {
+  track(ANALYTICS_EVENTS.SEARCH_RESULT_CLICK, { type: 'event', id })
+  uni.navigateTo({ url: `/pages/event/detail?id=${id}&source=search` }); emit('navigate')
+}
+function toPlace(id: string) {
+  track(ANALYTICS_EVENTS.SEARCH_RESULT_CLICK, { type: 'place', id })
+  uni.navigateTo({ url: `/pages/place/detail?id=${id}` }); emit('navigate')
+}
 </script>
 
 <style scoped>

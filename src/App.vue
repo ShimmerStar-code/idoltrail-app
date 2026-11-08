@@ -6,6 +6,8 @@ import { setAuthExpiredHandler, setTokenRefreshedHandler, refreshSessionIfStale 
 import { syncDefaultAvatars } from '@/utils/defaultAvatar'
 import { hasPrivacyConsent, getPrivacyVersion, isNativePrivacyAgreed, savePrivacyConsent } from '@/utils/privacy'
 import { syncAgreementsFromServer } from '@/utils/agreementContent'
+import { flushAnalytics, initAnalytics, sessionDurationMs, track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 import {
   initPush,
   syncPushToken,
@@ -83,6 +85,12 @@ watch(
 onLaunch(async () => {
   console.log('[App] Launch')
 
+  // 0) 埋点会话初始化：生成 session_id、标记首次安装。
+  //    注意：此时**还没有**隐私同意，所以 track() 只会把 app_launch 暂存在内存里，
+  //    真正上报要等到用户同意之后（SDK 内部有门控）。
+  initAnalytics()
+  track(ANALYTICS_EVENTS.APP_LAUNCH)
+
   // 0) 默认头像本地化：每天首次冷启动静默从 OSS 覆盖一份到本地缓存。
   //    包内已有一份兜底，本次调用不 await、不阻塞启动；失败就用包内那份。
   //    只下载静态图片，不带任何设备标识，属于"同意前可做"的最小动作。
@@ -102,6 +110,9 @@ onLaunch(async () => {
       console.log('[App] 原生隐私弹窗已取得同意，同步本地状态，不再弹自绘弹窗')
       savePrivacyConsent()
       userStore.markPrivacyConsented()
+      // 本次启动**新取得**同意（原生模板弹窗）→ 记一条隐私同意事件。
+      // 老用户启动时已有同意，不记（否则「同意次数」会被启动次数淹没，看不出真实转化）。
+      track(ANALYTICS_EVENTS.PRIVACY_CONSENT, { version: getPrivacyVersion() })
     } else {
       userStore.openPrivacyPopup('app_launch')
     }
@@ -155,6 +166,11 @@ onHide(() => {
   // 进后台由系统通知栏承接触达，无需任何额外动作。
   // 原先此处会断开通知 WebSocket —— 该通道已随方案调整下线。
   console.log('[App] Hide')
+  // 埋点：本次会话结束（切后台），带上会话时长
+  track(ANALYTICS_EVENTS.SESSION_END, { duration_ms: sessionDurationMs() })
+  // 切后台时把待上报的埋点队列尽快送出去：
+  // App 被系统杀掉时进程内的定时器不会再跑，队列要留在本地等下次启动才补报。
+  flushAnalytics()
 })
 </script>
 

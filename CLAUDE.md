@@ -432,6 +432,50 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
   **后端没部署前该按钮会失败并回滚**（不会丢数据）。发布顺序见
   **[`docs/message-push.md`](docs/message-push.md)**。
 
+## 埋点（自研轻量 SDK，不引第三方分析 SDK）
+
+链路：`src/utils/analytics.ts` → `src/api/analytics.ts` → `POST /api/v1/analytics/events`
+→ 后端 `analytics_events` 表 → admin-web「数据埋点」看板（`/analytics`）。
+
+### 为什么自研
+
+- **隐私合规**：国内应用商店要求「同意隐私政策前不得采集任何数据」。
+  第三方 SDK 常在初始化时就上报设备信息，我们没法卡住它的开关；
+  自研能对「同意之前一个字节都不上报」给出确定性保证。
+- **离线补报**：弱网 / 进程被杀时事件留在本地队列，下次启动再送。
+
+### 硬约束（改代码前先读）
+
+| 约束 | 原因 |
+|------|------|
+| **同意前不落盘、不上报** | 同意前只允许 `app_launch` / `privacy_consent` 暂存在**内存**，其余事件直接丢弃 |
+| **事件名白名单双写** | App 端 `src/constants/analytics.ts` 与后端 `internal/model/analytics_event.go` 的 `AnalyticsEventTypes` 必须一一对应；后端是权威，不在白名单的事件被静默丢弃 |
+| **props 只放业务 id 与枚举** | 禁止放手机号、昵称、坐标、完整 IP、画像标签；搜索词只记长度与命中数，不记原文 |
+| **上报走统一请求层** | 必须带 `silent: true` + `skipAuthRedirect: true`：埋点失败不弹 toast，token 失效也**不能**弹强制登录框（未登录是常态） |
+| **禁止 `await import()`** | App 平台打包要求单文件（`output.format = iife`），动态 import 会触发代码分割，构建直接失败：`UMD and IIFE output formats are not supported for code-splitting builds` |
+| **耗时上报用注入式** | `utils/request.ts` ↔ `utils/analytics.ts` 用 `setLatencyReporter()` 注入连接，静态 import 会成环 |
+| **上报路径排除自身** | `request.ts` 里 `/analytics/events` 与 `/auth/refresh` 不计耗时，否则自我放大 |
+
+### 事件清单（当前 21 个）
+
+启动与合规：`app_launch`、`privacy_consent`、`session_end`；
+首页：`home_view`、`home_refresh`、`region_switch`、`sort_change`、`category_select`；
+内容消费：`list_view`、`event_card_click`、`event_detail_view`、`share_click`、`agenda_add`；
+转化：`subscribe_click`、`search_submit`、`search_result_click`、`login_result`；
+其它：`city_locate`、`city_select`、`notification_click`、`api_latency`。
+
+### 活跃口径
+
+用**去重 session_id**，不用去重 user_id：未登录用户没有账号，
+按用户算会把首启未登录的流量整个漏掉（那正是最需要观测的一段）。
+
+### 发布顺序
+
+1. **先部署后端**（`migrations/0073_create_analytics_events` 由 `pkg/migrator` 启动时自动执行，
+   `analytics_events` 表 + `/api/v1/analytics/events` + `/admin/analytics/*` 一并上线）；
+2. 再部署 admin-web（看板依赖后端接口，后端没上看板会 404）；
+3. 最后发 App 包（App 端上报失败会静默重试，不影响主流程，早发晚发都不会丢数据）。
+
 ## 依赖版本锁定
 
 本项目的 Vue 版本**必须精确锁定**，不能用 `^`：

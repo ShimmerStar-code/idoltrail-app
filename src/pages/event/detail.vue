@@ -449,6 +449,8 @@ import { syncPushToken } from "@/composables/usePush";
 import { switchTabPage } from "@/utils/pages";
 import { getNavBarMetrics } from "@/utils/system";
 import { openExternalUrl } from "@/utils/openExternal";
+import { track } from "@/utils/analytics";
+import { ANALYTICS_EVENTS } from "@/constants/analytics";
 import { posterThumb } from "@/utils/image";
 import { formatCity } from "@/constants/cities";
 import { formatCityCountry } from "@/constants/countries";
@@ -502,6 +504,11 @@ onLoad((options) => {
   // 缓存内的动态字段已各自保证新鲜度：is_liked / likes_count 由
   // store.toggleLike 写回，subscribe_count 由 store.adjustSubscribeCount 就地修正。
   store.fetchDetail(numId);
+  // 埋点：详情页曝光（source 由列表页跳转时带上，缺失则为 unknown）
+  track(ANALYTICS_EVENTS.EVENT_DETAIL_VIEW, {
+    event_id: numId,
+    source: String(options?.source || "unknown"),
+  });
   // 让已结束活动的“已订阅”判断准确（支持对已订阅的过期活动退订；含外部深链进入）
   if (userStore.isLoggedIn) {
     subscribeStore.fetchMySubscribedIds().catch(() => {});

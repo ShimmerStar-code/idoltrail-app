@@ -13,11 +13,39 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef, type Ref } from 'vue'
 import { subscriptionApi } from '@/api/subscription'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 import type {
   ArtistCardVO,
   CityCardVO,
   EventCardVO,
 } from '@/types/subscription'
+
+/**
+ * 订阅埋点。
+ *
+ * 订阅是 App 最核心的转化动作（「订阅了才会收到通知，才会回访」），
+ * 统一在 store 的 toggle 里记 —— 页面层有多处入口（首页个人订阅条、
+ * 活动详情页、订阅页、偶像/城市卡片），在页面记会漏。
+ *
+ * @param target 订阅对象类型
+ * @param id     对象 id
+ * @param action subscribe（新增）/ unsubscribe（取消）
+ * @param ok     接口是否成功
+ */
+function trackSubscribe(
+  target: 'artist' | 'city' | 'event',
+  id: string,
+  action: 'subscribe' | 'unsubscribe',
+  ok: boolean,
+) {
+  track(ANALYTICS_EVENTS.SUBSCRIBE_CLICK, {
+    target,
+    id,
+    action,
+    ok: ok ? 1 : 0,
+  })
+}
 
 export const useSubscribeStore = defineStore('subscribe', () => {
   // ── id 集合（轻量，用于按钮反显） ──
@@ -281,12 +309,14 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       } else {
         await subscriptionApi.subscribeArtist(id)
       }
+      trackSubscribe('artist', id, had ? 'unsubscribe' : 'subscribe', true)
       return !had
     } catch (e) {
       // 回滚
       const rollback = new Set(subscribedArtistIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
       applyIdSetDiff(subscribedArtistIds, rollback)
+      trackSubscribe('artist', id, had ? 'unsubscribe' : 'subscribe', false)
       throw e
     }
   }
@@ -304,11 +334,13 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       } else {
         await subscriptionApi.subscribeCity(id, extra)
       }
+      trackSubscribe('city', id, had ? 'unsubscribe' : 'subscribe', true)
       return !had
     } catch (e) {
       const rollback = new Set(subscribedCityIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
       applyIdSetDiff(subscribedCityIds, rollback)
+      trackSubscribe('city', id, had ? 'unsubscribe' : 'subscribe', false)
       throw e
     }
   }
@@ -327,11 +359,13 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       } else {
         await subscriptionApi.subscribeEvent(id)
       }
+      trackSubscribe('event', String(id), had ? 'unsubscribe' : 'subscribe', true)
       return !had
     } catch (e) {
       const rollback = new Set(subscribedEventIds.value)
       if (had) rollback.add(id); else rollback.delete(id)
       applyIdSetDiff(subscribedEventIds, rollback)
+      trackSubscribe('event', String(id), had ? 'unsubscribe' : 'subscribe', false)
       throw e
     }
   }

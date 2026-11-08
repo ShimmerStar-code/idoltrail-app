@@ -16,6 +16,8 @@ import { pushApi } from '@/api/push'
 import { PUSH_ENABLED } from '@/utils/env'
 import { getDeviceId, getPushPlatform } from '@/utils/device'
 import { useNotificationStore } from '@/stores/notification'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 
 // 注：本文件与 stores/user.ts 曾相互 import，靠「顶层不执行」侥幸不出错，
 // 但 Vite 构建会因此告警 Circular chunk，且 chunk 求值顺序不可控。
@@ -180,6 +182,11 @@ function handleForeground(raw: RawPushMessage) {
 function handleClick(raw: RawPushMessage) {
   const payload = parsePushPayload(raw)
   console.log('[push] 通知点击', payload)
+  // 埋点：推送点击（判断推送是否真的带来回访）
+  track(ANALYTICS_EVENTS.NOTIFICATION_CLICK, {
+    channel: 'push',
+    type: String(payload.relatedType || ''),
+  })
   try {
     useNotificationStore().refreshAfterPush()
   } catch (e) {
