@@ -54,6 +54,20 @@
 
         <view class="divider" />
 
+        <!-- 数据说明与侵权举报：原为启动弹窗，现常驻在此 -->
+        <view class="section-card">
+          <text class="section-title">数据说明与侵权举报</text>
+          <text class="section-body">{{ DISCLAIMER_FULL }}</text>
+          <view class="report-row" @tap="copyReportEmail">
+            <text class="report-label">举报邮箱</text>
+            <text class="report-value">{{ REPORT_EMAIL }}</text>
+            <text class="report-hint">复制</text>
+          </view>
+          <text class="section-extra">活动信息部分来自网络与用户投稿，请以主办方官方公告为准。</text>
+        </view>
+
+        <view class="divider" />
+
         <!-- 意见反馈：未接入服务端前，走系统邮件客户端，不做假提交 -->
         <view class="feedback-card">
           <text class="feedback-title">意见反馈</text>
@@ -79,6 +93,7 @@ import { onShow } from "@dcloudio/uni-app";
 import PageLayout from "@/components/PageLayout/index.vue";
 import { getStatusBarHeight } from "@/utils/system";
 import { APP_COMPANY, APP_VERSION_LABEL, APP_VERSION_NAME, CONTACT_EMAIL, ICP_FILING_NO } from "@/constants/appInfo";
+import { DISCLAIMER_FULL, REPORT_EMAIL } from "@/constants/disclaimer";
 import { getEffectiveVersion } from "@/utils/agreementContent";
 import { appVersionApi, isNewerVersion } from "@/api/appVersion";
 import { openExternalUrl } from "@/utils/openExternal";
@@ -110,6 +125,14 @@ function copyEmail() {
   uni.setClipboardData({
     data: CONTACT_EMAIL,
     success: () => uni.showToast({ title: "邮箱已复制", icon: "none" }),
+  });
+}
+
+/** 复制侵权举报邮箱（与对外联系方式同一个） */
+function copyReportEmail() {
+  uni.setClipboardData({
+    data: REPORT_EMAIL,
+    success: () => uni.showToast({ title: "举报邮箱已复制", icon: "none" }),
   });
 }
 
@@ -394,5 +417,27 @@ function sendFeedback() {
 .icp-text {
   font-size: 26rpx;
   color: rgba(221, 221, 221, 1);
+}
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 16rpx 24rpx;
+  border-radius: 20rpx;
+  background: rgba(245, 245, 245, 1);
+}
+.report-label {
+  font-size: 24rpx;
+  color: rgba(153, 153, 153, 1);
+}
+.report-value {
+  flex: 1;
+  font-size: 25rpx;
+  color: rgba(51, 51, 51, 1);
+}
+.report-hint {
+  font-size: 22rpx;
+  color: rgba(254, 165, 0, 1);
 }
 </style>

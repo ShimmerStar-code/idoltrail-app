@@ -419,6 +419,16 @@
             </view>
           </view>
         </view>
+
+        <!--
+          数据免责声明：常驻在详情页底部，不再在启动时弹窗。
+          放在这里是语境最贴合的位置 —— 用户正在看一条可能来自众包上传的情报，
+          顺手就能看到「数据来自网络」与举报渠道。
+        -->
+        <view class="disclaimer-row" @tap="copyReportEmail">
+          <text class="disclaimer-text">{{ DISCLAIMER_SHORT }}</text>
+          <text class="disclaimer-link">侵权举报</text>
+        </view>
       </view>
 
       <view v-else class="empty">{{
@@ -443,6 +453,7 @@ import { posterThumb } from "@/utils/image";
 import { formatCity } from "@/constants/cities";
 import { formatCityCountry } from "@/constants/countries";
 import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
+import { DISCLAIMER_SHORT, REPORT_EMAIL } from "@/constants/disclaimer";
 import type { EventSession } from "@/types/event";
 import {
   EVENT_TYPE_LABEL,
@@ -462,6 +473,14 @@ const CHIP_LIMIT = 6;
 const expanded = ref(false);
 const statusBarHeight = ref(uni.getWindowInfo?.()?.statusBarHeight ?? 44);
 const navRightPadding = ref(16);
+
+/** 复制侵权举报邮箱（详情页底部免责声明的入口） */
+function copyReportEmail() {
+  uni.setClipboardData({
+    data: REPORT_EMAIL,
+    success: () => uni.showToast({ title: "举报邮箱已复制", icon: "none" }),
+  });
+}
 
 onMounted(() => {
   const metrics = getNavBarMetrics();
@@ -1475,6 +1494,27 @@ const noticeIsGeneric = computed(
   color: #8a8f99;
   font-size: 24rpx;
   line-height: 1.6;
+}
+/* 底部免责声明：常驻说明，不是弹窗；点击复制举报邮箱 */
+.disclaimer-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 24rpx 30rpx 8rpx;
+  padding: 18rpx 24rpx;
+  border-radius: 16rpx;
+  background: #f6f7f8;
+}
+.disclaimer-text {
+  flex: 1;
+  color: #8a8f99;
+  font-size: 23rpx;
+  line-height: 1.6;
+}
+.disclaimer-link {
+  flex-shrink: 0;
+  color: rgba(254, 165, 0, 1);
+  font-size: 23rpx;
 }
 .notice-item {
   margin-bottom: 24rpx;

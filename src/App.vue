@@ -2,7 +2,6 @@
 import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { watch } from 'vue'
 import { useUserStore } from '@/stores/user'
-import { useAppStore } from '@/stores/app'
 import { setAuthExpiredHandler, setTokenRefreshedHandler, refreshSessionIfStale } from '@/utils/request'
 import { syncDefaultAvatars } from '@/utils/defaultAvatar'
 import { hasPrivacyConsent, getPrivacyVersion, isNativePrivacyAgreed, savePrivacyConsent } from '@/utils/privacy'
@@ -17,7 +16,6 @@ import {
 import { useNotificationStore } from '@/stores/notification'
 
 const userStore = useUserStore()
-const appStore = useAppStore()
 const notifStore = useNotificationStore()
 
 // 401 + refresh 失败时由 request.ts 回调；注入式避开 request ↔ userStore 循环依赖
@@ -39,9 +37,14 @@ setTokenRefreshedHandler(() => {
  *   · initPush() —— plus.push.addEventListener 会拉起 uni-push 厂商通道 SDK，
  *     小米 / 华为 SDK 在初始化阶段就会读设备标识去注册通道；
  *   · checkNotifyPermissionHint() —— 读系统信息判断 Android 版本；
- *   · bootstrapSession() —— 带 token 请求后端，附带设备与 IP 信息；
- *   · checkAndShowDisclaimer() —— 免责声明弹窗若与隐私弹窗同时弹会叠成两层 mask，
- *     顺序上应该在隐私告知之后。
+ *   · bootstrapSession() —— 带 token 请求后端，附带设备与 IP 信息。
+ *
+ * ⚠️ 启动阶段只保留「隐私同意」这一个必须打断用户的弹窗。
+ * 数据免责声明曾经在这里弹（首次启动），已改为常驻说明：
+ * 见「关于我们 → 数据说明与侵权举报」、活动详情页底部、上传情报页提交区。
+ * 理由：免责声明不需要用户授权任何能力，只是内容声明；
+ * 放在启动时弹会与隐私弹窗、协议补签弹窗叠成多层 mask，
+ * 用户还没看到任何内容就被拦三次，留存直接崩掉。
  */
 let consentBootstrapped = false
 async function afterPrivacyConsent() {
@@ -66,9 +69,6 @@ async function afterPrivacyConsent() {
   // App 端没有 wx.login 这类免密登录手段,**绝不**做静默登录。
   const ok = await userStore.bootstrapSession()
   console.log('[App] bootstrapSession', ok, 'agreementRequired=', userStore.agreementRequired)
-
-  // 免责声明（首次启动）。放在隐私同意之后，避免两个弹窗叠在一起。
-  appStore.checkAndShowDisclaimer()
 }
 
 // 隐私同意状态变化（老用户启动时已是 true）→ 触发上面的初始化
@@ -170,7 +170,6 @@ onHide(() => {
 /* 全局样式 */
 
 /* 强制设置所有全局弹窗的 z-index，确保覆盖页面 header (z-index: 100) */
-.disclaimer-popup-high-zindex,
 .login-popup-high-zindex,
 .privacy-popup-high-zindex,
 .notification-popup-high-zindex {

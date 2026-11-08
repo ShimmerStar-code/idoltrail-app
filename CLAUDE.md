@@ -188,6 +188,25 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 - `src/App.vue` 里 `uni-toast` / `uni-modal` 被提升到 `z-index: 10000`，高于所有 popup 的 9999。新增全局弹层时注意层级顺序。
 - 弹窗关闭动画结束再弹 toast 时，加 `setTimeout`（约 350–400ms）。
 
+### 启动只弹一个窗：隐私同意
+
+启动阶段**只允许有一个必须打断用户的弹窗：隐私同意**（原生模板弹窗 / 降级自绘弹窗）。
+协议补签、登录框都属于「用户本来就要操作才能用」的流程，可以弹；
+其余凡是「只是告知、不需要授权」的内容，**一律不得在启动时弹窗**。
+
+数据免责声明原来在启动时弹（`DisclaimerPopup`），已撤掉：
+
+- 组件 `src/components/DisclaimerPopup/`、store `src/stores/app.ts`、
+  storage 的 `hasDisclaimerShown/setDisclaimerShown` 全部删除，别再复活。
+- 文案与举报邮箱统一在 `src/constants/disclaimer.ts`（`DISCLAIMER_FULL` /
+  `DISCLAIMER_SHORT` / `REPORT_EMAIL`）。
+- 现在下沉到三处**常驻**位置：
+  1. 「关于我们」页 → 数据说明与侵权举报区块（完整正文 + 可复制举报邮箱）
+  2. 活动详情页底部 → 一行免责小字 + 「侵权举报」（点击复制邮箱）
+  3. 上传情报页提交栏 → 贡献者须知（发布即代表已核实）
+
+理由：启动弹窗每多一层就掉一截留存，而免责声明不需要用户授权任何能力。
+
 ### 启动图（splashscreen）
 
 Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面。
@@ -259,7 +278,7 @@ Android 启动图是**原生层**资源（Activity 的 `windowBackground`），�
 ### 页面结构
 
 - `src/pages.json` **不声明原生 tabBar**，底部导航由页面内 `<TabBar>` 自绘，切换走 `switchTabPage()`。
-- **新页面必须用 `<PageLayout>` 包裹**。`LoginModal` / `PrivacyPopup` / `DisclaimerPopup` / `NotificationPromptModal` 由 `PageLayout` 挂载，不在 `App.vue` 的 template 里。
+- **新页面必须用 `<PageLayout>` 包裹**。`LoginModal` / `PrivacyPopup` / `NotificationPromptModal` 由 `PageLayout` 挂载，不在 `App.vue` 的 template 里。
 - 分包：`pages/event`、`pages/place`、`pages/search`、`pages/agreement`、`pages/admin`。
 
 ### 样式红线

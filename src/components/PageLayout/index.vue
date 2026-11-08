@@ -3,7 +3,6 @@
     <!-- 业务内容 -->
     <slot />
     <!-- 全局浮层:放在 slot 之后、tab 栏之上,覆盖全屏 -->
-    <DisclaimerPopup />
     <LoginModal />
     <PrivacyPopup />
     <NotificationPromptModal />
@@ -11,7 +10,6 @@
 </template>
 
 <script setup lang="ts">
-import DisclaimerPopup from '@/components/DisclaimerPopup/index.vue'
 import LoginModal from '@/components/LoginModal/index.vue'
 import PrivacyPopup from '@/components/PrivacyPopup/index.vue'
 import NotificationPromptModal from '@/components/NotificationPromptModal/index.vue'

@@ -109,12 +109,3 @@ export function getReturnTo<T = any>(): T | null {
 export function clearReturnTo() {
   uni.removeStorageSync(KEY_RETURN_TO)
 }
-
-// 启动免责声明：记录用户是否已阅读过，只在首次启动时显示
-const KEY_DISCLAIMER_SHOWN = 'fans:disclaimer:shown'
-export function hasDisclaimerShown(): boolean {
-  return !!uni.getStorageSync(KEY_DISCLAIMER_SHOWN)
-}
-export function setDisclaimerShown() {
-  uni.setStorageSync(KEY_DISCLAIMER_SHOWN, '1')
-}
