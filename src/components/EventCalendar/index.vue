@@ -8,59 +8,77 @@
     yearMonth      string                  'YYYY-MM'
     selectedDate   string                  'YYYY-MM-DD',空 = 不选中
     dailyCounts    Record<string, number>  每日活动数
+    collapsed      boolean                 折叠成一行(只留月份+已选日期)
 
   emits:
     update:yearMonth
     update:selectedDate
+    update:collapsed
+
+  为什么要有折叠态:完整日历 6 行占掉约 300px,列表可视区被压得只剩两三张卡。
+  折叠后只留一行(约 44px),月份和已选日期都还在,想继续挑日期点一下就展开。
 -->
 <template>
-  <view class="cal">
-    <view class="cal-header">
+  <view class="cal" :class="{ 'cal--collapsed': collapsed }">
+    <!-- 折叠态整行可点(展开),展开态只作展示 -->
+    <view class="cal-header" @click="collapsed && emit('update:collapsed', false)">
       <view class="cal-title">
         <text class="cal-month">{{ monthLabel }}</text>
-        <view v-if="selectedDate" class="cal-clear" @click="onClearDate">
-          <text class="cal-clear-text">清除日期</text>
+        <view v-if="selectedDate" class="cal-clear" @click.stop="onClearDate">
+          <text class="cal-clear-text">{{ collapsed ? selectedDateLabel : "清除日期" }}</text>
+          <uni-icons v-if="collapsed" type="close" size="10" color="#fff" />
         </view>
       </view>
       <view class="cal-nav">
-        <view class="cal-nav-btn" @click="prevMonth">
-          <uni-icons type="left" size="16" color="#fff" />
+        <view v-if="collapsed" class="cal-expand" @click.stop="emit('update:collapsed', false)">
+          <text class="cal-expand-text">展开</text>
+          <uni-icons type="bottom" size="13" color="#fff" />
         </view>
-        <view class="cal-nav-btn" @click="nextMonth">
-          <uni-icons type="right" size="16" color="#fff" />
-        </view>
+        <template v-else>
+          <view class="cal-nav-btn" @click.stop="prevMonth">
+            <uni-icons type="left" size="16" color="#fff" />
+          </view>
+          <view class="cal-nav-btn" @click.stop="nextMonth">
+            <uni-icons type="right" size="16" color="#fff" />
+          </view>
+          <view class="cal-nav-btn" @click.stop="emit('update:collapsed', true)">
+            <uni-icons type="bottom" size="16" color="#fff" />
+          </view>
+        </template>
       </view>
     </view>
-    <view class="cal-weekdays">
-      <text v-for="w in weekdays" :key="w" class="cal-weekday">{{ w }}</text>
-    </view>
-    <view class="cal-grid">
-      <view
-        v-for="(cell, i) in cells"
-        :key="i"
-        class="cal-cell"
-        :class="{
-          'cal-cell--out': !cell.inMonth,
-          'cal-cell--selected': cell.isSelected,
-          'cal-cell--today': cell.isToday,
-        }"
-        @click="onCellClick(cell)"
-      >
-        <text
-          v-if="cell.day"
-          class="cal-day"
+    <template v-if="!collapsed">
+      <view class="cal-weekdays">
+        <text v-for="w in weekdays" :key="w" class="cal-weekday">{{ w }}</text>
+      </view>
+      <view class="cal-grid">
+        <view
+          v-for="(cell, i) in cells"
+          :key="i"
+          class="cal-cell"
           :class="{
-            'cal-day--selected': cell.isSelected,
-            'cal-day--today': cell.isToday && !cell.isSelected,
+            'cal-cell--out': !cell.inMonth,
+            'cal-cell--selected': cell.isSelected,
+            'cal-cell--today': cell.isToday,
           }"
-        >{{ cell.day }}</text>
-        <text
-          v-if="cell.day && cell.count > 0"
-          class="cal-count"
-          :class="{ 'cal-count--selected': cell.isSelected }"
-        >{{ cell.count }}场</text>
+          @click="onCellClick(cell)"
+        >
+          <text
+            v-if="cell.day"
+            class="cal-day"
+            :class="{
+              'cal-day--selected': cell.isSelected,
+              'cal-day--today': cell.isToday && !cell.isSelected,
+            }"
+          >{{ cell.day }}</text>
+          <text
+            v-if="cell.day && cell.count > 0"
+            class="cal-count"
+            :class="{ 'cal-count--selected': cell.isSelected }"
+          >{{ cell.count }}场</text>
+        </view>
       </view>
-    </view>
+    </template>
   </view>
 </template>
 
@@ -80,11 +98,14 @@ const props = defineProps<{
   yearMonth: string
   selectedDate: string
   dailyCounts: Record<string, number>
+  /** 折叠成一行，只留月份与已选日期 */
+  collapsed?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: "update:yearMonth", v: string): void
   (e: "update:selectedDate", v: string): void
+  (e: "update:collapsed", v: boolean): void
 }>()
 
 const weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -96,6 +117,13 @@ const monthLabel = computed(() => {
   if (!y || !m) return ""
   // 直接字符串拼接，避免 toLocaleString 在小程序中返回完整日期串
   return `${y}年${MONTH_ZH[m - 1]}`
+})
+
+/** 折叠态下展示的已选日期（MM-DD），带 × 提示可点击清除 */
+const selectedDateLabel = computed(() => {
+  const d = props.selectedDate
+  if (!d) return ""
+  return d.length >= 10 ? d.slice(5, 10) : d
 })
 
 const todayStr = computed(() => {
@@ -211,9 +239,32 @@ function nextMonth() {
 .cal-clear {
   display: flex;
   align-items: center;
+  gap: 6rpx;
   background: rgba(255, 255, 255, 0.25);
   border-radius: 20rpx;
   padding: 6rpx 16rpx;
+}
+/* 折叠态：整块只占一行，把可视区还给列表 */
+.cal--collapsed {
+  padding: 18rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+.cal--collapsed .cal-header {
+  margin-bottom: 0;
+}
+.cal-expand {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  height: 48rpx;
+  padding: 0 16rpx;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 24rpx;
+}
+.cal-expand-text {
+  font-size: 22rpx;
+  color: #fff;
+  line-height: 1;
 }
 .cal-clear-text {
   font-size: 20rpx;
