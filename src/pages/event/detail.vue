@@ -11,6 +11,15 @@
           <view class="nav-actions">
             <!-- <text class="nav-icon">👁</text> -->
             <!-- <text class="nav-icon">🔖</text> -->
+            <!-- 分享入口：App 端没有微信那种「右上角胶囊 → 转发」的系统入口，
+                 必须由业务代码主动调起分享面板（见 onShare）。 -->
+            <view
+              class="nav-share-btn"
+              @click.stop="onShare"
+              hover-class="nav-subscribe-btn--hover"
+            >
+              <uni-icons type="redo" size="20" color="#333" />
+            </view>
             <view
               class="nav-subscribe-btn"
               @click.stop="onToggleSubscribe"
@@ -449,6 +458,7 @@ import { syncPushToken } from "@/composables/usePush";
 import { switchTabPage } from "@/utils/pages";
 import { getNavBarMetrics } from "@/utils/system";
 import { openExternalUrl } from "@/utils/openExternal";
+import { shareApp } from "@/utils/share";
 import { track } from "@/utils/analytics";
 import { ANALYTICS_EVENTS } from "@/constants/analytics";
 import { posterThumb } from "@/utils/image";
@@ -703,6 +713,74 @@ function goBack() {
   }
 }
 
+// ---- 分享 ----
+/**
+ * 分享落地页。
+ *
+ * 目前官网（www.idoltrail.com）只有首页与协议页，**没有单场活动的 H5 详情页**，
+ * 因此分享出去的链接只能指向官网，活动信息靠文案承载。
+ * 等官网补上 /event/:id 路由后，这里换成对应链接即可（其余逻辑不用动）。
+ */
+const SHARE_LANDING = "https://www.idoltrail.com";
+
+/** 拼分享文案：活动标题 + 阵容 + 开演时间 + 城市 */
+function buildShareText(): string {
+  const ev = d.value;
+  if (!ev) return "";
+  const artists = validArtists.value
+    .map((a) => a.artist_name)
+    .filter(Boolean)
+    .join("、");
+  const sess = currentSession.value;
+  const time = sess?.times?.[0];
+  const datePart = time?.event_date ? String(time.event_date).slice(0, 10) : "";
+  const startTime = time?.start_time ? String(time.start_time).slice(0, 5) : "";
+  return [
+    ev.title,
+    artists ? `演出阵容：${artists}` : "",
+    datePart
+      ? `开演时间：${datePart}${startTime ? " " + startTime : ""}`
+      : "",
+    sess?.city ? `举办城市：${formatCity(sess.city)}` : "",
+    "",
+    "在 idoltrail App 内搜索活动名即可查看详情与购票入口",
+    "官网：www.idoltrail.com",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function onShare() {
+  const ev = d.value;
+  if (!ev) return;
+  const text = buildShareText();
+  uni.showActionSheet({
+    itemList: ["分享给好友", "复制活动信息"],
+    success: (res) => {
+      if (res.tapIndex === 0) {
+        track(ANALYTICS_EVENTS.SHARE_CLICK, { event_id: ev.id, channel: "friend" });
+        shareApp({
+          title: ev.title,
+          summary: text,
+          url: SHARE_LANDING,
+        });
+      } else {
+        track(ANALYTICS_EVENTS.SHARE_CLICK, { event_id: ev.id, channel: "copy" });
+        uni.setClipboardData({
+          data: text,
+          success: () =>
+            uni.showToast({ title: "活动信息已复制", icon: "success" }),
+          fail: () =>
+            uni.showToast({ title: "复制失败，请稍后再试", icon: "none" }),
+        });
+      }
+    },
+    fail: () => {
+      /* 用户取消 */
+    },
+  });
+}
+
 function goToArtist(artistId: string) {
   if (!artistId) return;
   uni.navigateTo({ url: `/pages/artist/detail?id=${artistId}` });
@@ -879,6 +957,18 @@ const noticeIsGeneric = computed(
 .nav-subscribe-icon {
   width: 90%;
   height: 90%;
+}
+/* 分享按钮：与订阅按钮同规格，只是里面放的是图标而不是图片 */
+.nav-share-btn {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #f8f8f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
 }
 
 /* ── 信息卡片（底色由内联 theme.base 覆盖，见模板）── */
