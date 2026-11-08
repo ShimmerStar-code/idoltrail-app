@@ -8,13 +8,19 @@
           :class="{ 'search-bar--active': searchActive }"
         >
           <uni-icons type="search" size="16" color="#999" />
+          <!--
+            输入框必须**常驻** DOM：试过用 v-if 在关闭时移除它，
+            但 App 端原生 EditText 的视图不会被立刻回收，
+            残留的原生控件继续吃掉整条搜索框区域的点击 →
+            既没有 focus 事件、也点不到下面的热区，搜索框直接变成死区。
+          -->
           <input
             class="search-input"
             v-model="searchKeyword"
             placeholder="搜索您喜欢的艺人"
             placeholder-class="search-placeholder-cls"
             :focus="searchActive"
-            @focus="searchActive = true"
+            @focus="onSearchFocus"
             @input="onSearchInput"
             confirm-type="search"
           />
@@ -101,16 +107,31 @@
         @click="closeSearch"
         @touchmove.stop.prevent
       />
-      <!-- 搜索结果：紧贴搜索框底部，可上下滚动 -->
-      <scroll-view
+      <!--
+        搜索结果容器。
+
+        结构要点（三处都是踩出来的）：
+        1. 暗色遮罩 backdrop 绑了 closeSearch，但它 z-index 比面板低 →
+           面板必须**按内容高度自适应**，不能铺满，遮罩才有裸露的部分可点；
+        2. 原生 scroll-view 会吃掉触摸，事件不冒泡到外层 view →
+           「点空白关闭」只能交给没有子元素的 backdrop；
+        3. 面板内容区再包一层 @click.stop，让「点搜索结果」仍算选中。
+
+        之前 .search-mask 是 fixed + bottom:0（铺满整屏），
+        于是每一块空白都落在 scroll-view 上 → 点了没反应，只能点 ✕。
+      -->
+      <view
         v-if="searchKeyword"
-        scroll-y
-        class="search-mask"
+        class="search-layer"
         :style="{ top: headerBottom + 'px' }"
-        @touchmove.stop
       >
-        <SearchOverlay :keyword="searchKeyword" @navigate="closeSearch" />
-      </scroll-view>
+        <scroll-view scroll-y class="search-mask" @touchmove.stop>
+          <!-- 内容区阻断冒泡：点搜索结果是「选中」，不该被当成「点空白关闭」 -->
+          <view class="search-mask-content" @click.stop>
+            <SearchOverlay :keyword="searchKeyword" @navigate="closeSearch" />
+          </view>
+        </scroll-view>
+      </view>
 
       <TabBar :current="1" />
     </view>
@@ -180,6 +201,14 @@ function closeSearch() {
   searchActive.value = false;
   searchKeyword.value = "";
   searchStore.clear();
+  // 收键盘：App 端点搜索框以外的区域不会自动失焦，输入法会一直挂在屏幕上，
+  // 搜索面板却已经消失，看起来像「键盘卡住了」。
+  uni.hideKeyboard();
+}
+
+/** 输入框获得焦点 → 确保搜索面板是展开的（新建即聚焦，这里只做兜底） */
+function onSearchFocus() {
+  searchActive.value = true;
 }
 
 // 搜索激活时测量搜索框真实底部位置，与 home/index.vue 保持一致
@@ -349,6 +378,7 @@ function viewAll(codes: string[]) {
   padding-bottom: 20rpx;
 }
 .search-bar {
+  position: relative;
   background: #fff;
   border-radius: 30rpx;
   border: 1rpx solid rgba(236, 236, 236, 1);
@@ -356,7 +386,11 @@ function viewAll(codes: string[]) {
   display: flex;
   align-items: center;
   gap: 10rpx;
-  padding: 22rpx 30rpx;
+  /* 纵向内边距 16rpx，与首页搜索栏（home/index.vue 的 .search-bar）对齐。
+     原来这里是 22rpx → 输入框整体比首页高 12rpx（≈6px），
+     同一 App 里两个搜索框高度不一致，看上去就是「太高了」。
+     横向保持 30rpx，与本页 .header 的左右内边距一致（内容左右对齐）。 */
+  padding: 16rpx 30rpx;
 }
 .search-bar--active {
   border-color: rgba(254, 165, 0, 1);
@@ -387,12 +421,16 @@ function viewAll(codes: string[]) {
   z-index: 98;
 }
 /* 搜索结果滚动容器 */
-.search-mask {
+.search-layer {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
   z-index: 99;
+}
+/* 面板按内容高度自适应（不能铺满）：铺满就会把暗色遮罩全盖住，
+   遮罩上的 closeSearch 再也点不到（原生 scroll-view 还会吃掉触摸）。 */
+.search-mask {
+  max-height: 70vh;
   padding: 20rpx 30rpx 30rpx;
   box-sizing: border-box;
 }
