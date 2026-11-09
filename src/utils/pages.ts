@@ -20,8 +20,6 @@ export const TAB_PAGES = [
   'pages/profile/index',
 ] as const
 
-import { perfMark } from '@/utils/perf'
-
 export type TabPage = (typeof TAB_PAGES)[number]
 
 export function isTabPage(path: string): boolean {
@@ -69,7 +67,6 @@ export function switchTabPage(url: string): void {
   const pages = getCurrentPages() as Array<{ route?: string }>
   const idx = pages.findIndex((p) => (p.route || '').replace(/^\//, '') === target.replace(/^\//, ''))
 
-  perfMark(`switchTab:begin ${target} stackLen=${pages.length} idx=${idx}`)
   if (idx >= 0 && idx === pages.length - 1) return // 已在当前页
   uni.switchTab({
     url: target,

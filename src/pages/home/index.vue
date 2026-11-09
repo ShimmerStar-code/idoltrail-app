@@ -264,15 +264,14 @@ import {
   effectiveEventStatus,
   EVENT_TYPE_OPTIONS,
 } from "@/constants/eventMeta";
-import { cityEn } from "@/constants/cities";
 import { HOT_ARTIST_FALLBACK } from "@/constants/hotArtists";
 import { getStatusBarHeight } from "@/utils/system";
-import { locateCity } from "@/utils/location";
+import { locateCity, type LocatedCity } from "@/utils/location";
+import { cityQueryValue, resolveCityCodes } from "@/utils/cityFilter";
 import { switchTabPage } from "@/utils/pages";
 import { useVirtualList } from "@/composables/useVirtualList";
 import { EVENT_SORT_OPTIONS, type EventSort } from "@/api/event";
 import { track } from "@/utils/analytics";
-import { perfMark } from "@/utils/perf";
 import { ANALYTICS_EVENTS } from "@/constants/analytics";
 
 const homeStore = useHomeStore();
@@ -329,7 +328,15 @@ const regions = ["本地", "全国", "全球"];
 
 const LOCATING_PLACEHOLDER = "定位中...";
 const currentCity = ref(LOCATING_PLACEHOLDER);
-const locatedCity = ref("");
+/**
+ * 当前城市在库内的**全部等价写法**（英文，可直接作为 /events?city= 的值）。
+ *
+ * 为什么不能只留一个：event_sessions.city 存的是录入时的原始写法，
+ * 同一个城市在库里有多种（香港 = "Hong Kong" + "Xianggang"、西安 = "Xi'an" + "xian"），
+ * 筛选是精确匹配，只给一个就漏掉同城另一批场次。
+ * 这份集合由后端 /city/normalize 给出（见 utils/cityFilter.ts）。
+ */
+const locatedCodes = ref<string[]>([]);
 const cityPickerVisible = ref(false);
 const locating = ref(false);
 
@@ -345,25 +352,25 @@ const displayCity = computed(() => {
 async function doLocate() {
   locating.value = true;
 
-  // 超时兜底：15s 内未完成则降级为全国视图。
+  // 超时兜底：25s 内未完成则降级为全国视图。
   // 首页定位是 IP 粗定位（不申请系统权限），正常几百毫秒就回；
-  // 15s 是给弱网 / 后端 IP 解析服务慢留的余量。
+  // 首选与兜底 IP 服务各有 10s 超时，另含后端归一化，25s 仅用于防挂死。
   // done 闸门必须存在：接口返回与兜底定时器谁先到不确定，两条路径都会写
   // currentCity/locating，不加闸门会出现「已定位成功又被兜底改回」。
   let done = false;
 
-  const settle = (city: string) => {
+  const settle = (located: LocatedCity) => {
     if (done) return;
     done = true;
     if (locateSafeTimer) {
       clearTimeout(locateSafeTimer);
       locateSafeTimer = null;
     }
-    locatedCity.value = city;
-    currentCity.value = city;
+    currentCity.value = located.name;
+    locatedCodes.value = located.codes;
     locating.value = false;
     // 埋点：定位成功（只记城市名，不记坐标 —— 坐标属于敏感个人信息）
-    track(ANALYTICS_EVENTS.CITY_LOCATE, { method: "ip", ok: 1, city: city });
+    track(ANALYTICS_EVENTS.CITY_LOCATE, { method: "ip", ok: 1, city: located.name });
     // 定位成功 → 自动切到「本地」并按该城市重拉。
     // 旧版只改顶部文案、请求仍是全球，顶部写「北京」内容却是全球的，
     // 用户会直接判定「定位坏了」。
@@ -383,22 +390,24 @@ async function doLocate() {
     // 定位失败不落到「北京」这种假城市 —— 那会让用户以为定位到了北京。
     // 保持「全国」视图，城市选择器里可以手动改。
     currentCity.value = "选择城市";
-    locatedCity.value = "";
+    locatedCodes.value = [];
     locating.value = false;
+    // 必须留一条日志：首页定位是**静默**发生的（不弹 toast、不打断浏览），
+    // 没有日志就分不清「定位成功但没匹配到城市」和「定位请求根本没发出去」。
+    console.warn("[Location] 城市定位未成功，回落全国视图");
     track(ANALYTICS_EVENTS.CITY_LOCATE, { method: "ip", ok: 0 });
   };
-  // 15s 兜底必须存句柄：定位是逆地理 + 权限弹窗的组合，慢网/用户不点授权时
-  // 可能挂满 15s。这期间用户切走 tab（onHide 不卸载）的话，定时器照样触发，
+  // 25s 兜底必须存句柄：定位是逆地理 + 权限弹窗的组合，慢网/用户不点授权时
+  // 可能挂满 25s。这期间用户切走 tab（onHide 不卸载）的话，定时器照样触发，
   // 回来时又发一轮请求，表现为「首页自己刷新了一下」。
-  locateSafeTimer = setTimeout(fallback, 15000);
+  locateSafeTimer = setTimeout(fallback, 25000);
 
   try {
     // 默认只走 IP 粗定位（不申请任何系统权限）：首页加载不弹位置授权框，
     // 符合应用市场「权限必须在用户主动触发时申请」的要求。
     // 需要精确位置时，用户在「城市选择器」点「重新定位」才会走坐标定位。
-    const city = await locateCity();
-    console.log("[Location] 城市定位结果:", city);
-    settle(city);
+    const located = await locateCity();
+    settle(located);
   } catch (e) {
     // 静默降级：定位只是首屏的锦上添花，失败不该打断浏览，也不弹 toast 打扰用户。
     console.error("[Location] 城市定位失败:", e);
@@ -416,13 +425,17 @@ function showCityPicker() {
   cityPickerVisible.value = true;
 }
 
-function onCitySelect(city: { name: string; id: string }) {
-  // CityPicker 返回 { name: 中文城市名, id: region.id }
+async function onCitySelect(city: { name: string; id: string; code: string }) {
+  // CityPicker 返回 { name: 中文城市名, id: region.id, code: 英文写法 }
   currentCity.value = city.name;
-  locatedCity.value = city.name;
   userPickedRegion.value = true;
   activeRegion.value = 0;
   track(ANALYTICS_EVENTS.CITY_SELECT, { city: city.name });
+  // 手动选的城市同样要问后端要「库内全部等价写法」：
+  // 同一个城市在库里有多种写法（香港 = "Hong Kong" + "Xianggang"），
+  // 只给一个就漏掉同城另一批场次。
+  const codes = await resolveCityCodes(city.code || city.name, city.name);
+  locatedCodes.value = codes;
   reloadFeed();
 }
 
@@ -452,10 +465,15 @@ function buildFeedParams(): Record<string, any> {
     order: sortCode.value,
   };
   if (activeRegion.value === 0) {
-    // 本地：按 currentCity(zh) → 英文
-    const en = cityEn(currentCity.value);
-    if (en) {
-      params.city = en;
+    // 本地：按当前城市在库内的**全部写法**筛（逗号分隔多值，后端支持）
+    //
+    // 不能只给一个写法：event_sessions.city 存的是录入原值，同城多种写法
+    // （香港 = "Hong Kong" + "Xianggang"），漏一个就漏一批场次。
+    // 也不能用包内静态表的"规范码"：那张表与库内真实写法对不上
+    // （Xian→0 而 Xi'an→38、HongKong→0 而 Xianggang→18）。
+    const codes = locatedCodes.value;
+    if (codes.length) {
+      params.city = cityQueryValue(codes);
     } else {
       // 城市不在映射表里，以全国兜底，tab 保持在「本地」不跳走
       params.country = "CN";
@@ -645,7 +663,7 @@ const subCount = computed(
     subscribeStore.subscribedEventIds.size,
 );
 const personalTitle = computed(() => {
-  if (!userStore.isLoggedIn) return "订阅你关心的演出";
+  if (!userStore.isLoggedIn) return "订阅您喜欢的演出";
   if (subCount.value > 0) return `你已订阅 ${subCount.value} 项`;
   return "订阅偶像与城市，有变动第一时间通知";
 });
@@ -677,7 +695,7 @@ let scrollMeasureTimer: ReturnType<typeof setTimeout> | null = null;
 // 测量搜索框位置统一走这里：searchActive 打开时（0ms）与滚动停止后（100ms）
 // 是同一段逻辑，早前是两处裸 setTimeout，句柄都没保存，切页后仍会回调已卸载的节点。
 let headerMeasureTimer: ReturnType<typeof setTimeout> | null = null;
-/** 定位兜底定时器句柄（定位全程可能长达 15s，切页时必须能撤掉） */
+/** 定位兜底定时器句柄（定位全程可能长达 25s，切页时必须能撤掉） */
 let locateSafeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function measureSearchBar() {
@@ -712,7 +730,7 @@ function clearHomeTimers() {
     headerMeasureTimer = null;
   }
   // 定位兜底定时器同样必须清：切走 tab 时定位还在路上，
-  // 15s 后兜底触发会发一轮请求，用户回来看到的是「首页莫名刷新了」。
+  // 25s 后兜底触发会发一轮请求，用户回来看到的是「首页莫名刷新了」。
   if (locateSafeTimer) {
     clearTimeout(locateSafeTimer);
     locateSafeTimer = null;
@@ -831,8 +849,17 @@ function onClearHistory() {
 }
 
 function closeSearch() {
-  uni.showToast({ title: "CLOSE", icon: "none", duration: 3000 });  searchActive.value = false;
-  // EXPERIMENT: 不清空 keyword
+  // ⚠️ 必须清 searchKeyword：搜索遮罩（.search-backdrop / .search-layer）的
+  // v-if 是「searchKeyword || showSearchPanel」，只把 searchActive 置 false 时
+  // **关键词还在**，遮罩不会消失 —— 88% 的全屏暗色 backdrop 盖住整页，
+  // 底层什么都点不动（表现为「界面卡死」），面板里还停在「暂无结果」。
+  // 偶像页 artist/list.vue 的 closeSearch 一直是这么写的，这里漏了。
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+  searchActive.value = false;
+  searchKeyword.value = "";
   searchStore.clear();
   // 收键盘：App 端点搜索框以外的区域不会自动失焦，输入法会一直挂在屏幕上，
   // 搜索面板却已经消失，看起来像「键盘卡住了」。
@@ -841,7 +868,6 @@ function closeSearch() {
 
 /** 输入框获得焦点 → 确保搜索面板是展开的 */
 function onSearchFocus() {
-  uni.showToast({ title: "FOCUS", icon: "none", duration: 3000 });
   searchActive.value = true;
 }
 
@@ -912,7 +938,6 @@ onPageScroll(() => {
 
 // 切走再回（从订阅页/详情页返回）：按当天日期重判过期 + 补拉 feed 与订阅态
 onShow(() => {
-  perfMark('home:onShow')
   nowTick.value++; // 触发 feedEvents 重新过滤（跨天回到本页也能即时剔除新过期的"售票中"）
   // 埋点：首页曝光（每次回到首页都记一次，反映真实的活跃频次）
   track(ANALYTICS_EVENTS.HOME_VIEW, {

@@ -1,4 +1,9 @@
-import type { IpCityResult, ReverseCityResult } from '@/types/geo'
+import type {
+  CityNormalizeInput,
+  CityNormalizeResult,
+  IpCityResult,
+  ReverseCityResult,
+} from '@/types/geo'
 import { request } from '@/utils/request'
 
 export const geoApi = {
@@ -30,5 +35,33 @@ export const geoApi = {
       method: 'GET',
       silent: true,
       data: { lat: lat.toFixed(6), lon: lon.toFixed(6) },
+    }),
+
+  /**
+   * 城市归一化：把外部来源的「国家 + 城市」原始值换成站内的规范写法。
+   *
+   * 为什么需要这个接口：
+   *   活动表 `event_sessions.city` 存的是**录入时的原始写法**，
+   *   同一个城市在库里有多种写法（香港 = "Hong Kong" + "Xianggang"，
+   *   西安 = "Xi'an"，呼和浩特 = "Huhehaote" …），
+   *   而筛选是**精确匹配**（`city = ?`）。拿外部给的名字直接去筛，
+   *   命中率是 0 —— 这正是首页定位筛不出活动的根因。
+   *   后端知道库里到底有哪些写法，所以归一化必须由后端做（唯一权威）。
+   *
+   * 返回的 `code` / `codes` 就是库里真实存在的写法，可直接拿去筛；
+   * `name` 是中文显示名，用于界面展示。
+   *
+   * silent: true —— 定位失败不弹全局 toast（CityPicker 的「重新定位」在弹层
+   * 打开期间触发，mask 会遮住 uni-toast），失败由调用方内联展示。
+   */
+  normalizeCity: (input: CityNormalizeInput) =>
+    request<CityNormalizeResult>('/city/normalize', {
+      method: 'GET',
+      silent: true,
+      data: {
+        country: input.country || '',
+        city: input.city,
+        region: input.region || '',
+      },
     }),
 }

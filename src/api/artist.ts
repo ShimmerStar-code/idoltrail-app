@@ -1,6 +1,6 @@
 import type { PageParams, PageResult } from '@/types'
 import { request } from '@/utils/request'
-import type { Artist, ArtistDetail } from '@/types/artist'
+import type { Artist, ArtistDetail, ArtistMember } from '@/types/artist'
 
 /** 按地区偶像列表页支持的排序字段 */
 export type ArtistSort = 'event_count' | 'subscriber_count'
@@ -40,6 +40,33 @@ export const artistApi = {
       },
     }),
 
-  detail: (id: string) =>
-    request<ArtistDetail>(`/artists/${id}`, { method: 'GET' }),
+  /**
+   * 偶像详情。
+   *
+   * relations=none：跳过全量 relations（组合艺人能到几百条 ≈ 90KB），
+   * 成员改走 members 接口分页拉。后端未支持该参数时会忽略它（照旧返回 relations），
+   * 前端据此回退，功能不会因此坏掉。
+   */
+  detail: (id: string, options?: { relations?: 'none' }) =>
+    request<ArtistDetail>(`/artists/${id}`, {
+      method: 'GET',
+      data: options?.relations ? { relations: options.relations } : undefined,
+    }),
+
+  /**
+   * 组合成员分页。
+   *
+   * silent: true —— 后端还没上这个接口时是 404，属于「预期内的不可用」，
+   * 不该弹全局 toast（弹窗遮罩会挡住正在操作的界面）。
+   * 页面自己回退到详情里的 relations。
+   */
+  members: (id: string, params: { page?: number; pageSize?: number } = {}) =>
+    request<PageResult<ArtistMember>>(`/artists/${id}/members`, {
+      method: 'GET',
+      data: {
+        page: params.page ?? 1,
+        page_size: params.pageSize ?? 20,
+      },
+      silent: true,
+    }),
 }

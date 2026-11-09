@@ -3,7 +3,7 @@
 
 import type { Artist } from './artist'
 
-export type SubTargetType = 'artist' | 'city' | 'event'
+export type SubTargetType = 'artist' | 'city' | 'event' | 'venue'
 
 /** 订阅/退订统一返回 */
 export interface SubscribeResult {
@@ -39,6 +39,27 @@ export interface CityCardVO {
   city: CityRegion
   event_count: number
   extra: { type?: string; tag?: string } & Record<string, any>
+  subscribed_at: string
+}
+
+/** 场馆主数据（来自 places 表） */
+export interface VenuePlace {
+  id: string
+  name: string
+  country: string
+  city_id: string
+  type: string
+  address: string
+  latitude: number
+  longitude: number
+  /** 该场馆关联的活动数（列表接口按它排序） */
+  event_count?: number
+}
+
+/** 场馆订阅卡（订阅页「场馆订阅」区） */
+export interface VenueCardVO {
+  place: VenuePlace
+  event_count: number
   subscribed_at: string
 }
 

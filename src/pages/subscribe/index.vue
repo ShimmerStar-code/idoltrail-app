@@ -41,10 +41,6 @@
             <uni-icons type="plus" size="17" color="#8A5600" />
             <text class="add-btn-text">订阅偶像</text>
           </view>
-          <view v-if="activeTab === 2" class="add-btn" @click="onAddCity">
-            <uni-icons type="plus" size="17" color="#8A5600" />
-            <text class="add-btn-text">订阅城市</text>
-          </view>
         </view>
 
         <scroll-view
@@ -140,6 +136,12 @@
           <!-- ── Tab 2 城市 ── -->
           <template v-if="activeTab === 2">
             <view class="tab-tip">{{ TAB_TIPS[2] }}</view>
+
+            <!--
+              已订阅的城市：保留可退订入口。
+              App 端不再提供「订阅城市」的新增入口（一个城市的活动量太大，
+              订阅城市等于订阅一座城市的公告栏），新增走下面的「场馆订阅」。
+            -->
             <view
               v-if="store.myCities.length === 0 && !store.loading.cities"
               class="empty"
@@ -155,6 +157,19 @@
               @unsubscribe="onUnsubCity"
               @updateExtra="onUpdateCityExtra"
               @openRelated="onOpenCityRelated"
+            />
+
+            <!-- 场馆订阅：放在城市订阅列表下面 -->
+            <VenueSubPanel
+              :city-name="venueCity.name"
+              :venues="venueList"
+              :loading="venueLoading"
+              :subscribed-ids="store.subscribedVenueIds"
+              :subscribed-count="store.myVenues.length"
+              :limit="VENUE_LIMIT"
+              @pick-city="onPickVenueCity"
+              @subscribe="onSubscribeVenue"
+              @unsubscribe="onUnsubscribeVenue"
             />
           </template>
           <!-- ── Tab 3 日程 ── -->
@@ -197,13 +212,14 @@
       </template>
     </view>
 
-    <!-- 城市选择 sheet（复用 CityPicker） -->
+    <!-- 城市选择 sheet（复用 CityPicker）：
+         两种用途 —— 订阅城市（老入口）与浏览某城市的场馆 -->
     <CityPicker
       :visible="cityPickerVisible"
       :selected-city="''"
       :subscribed-ids="[...store.subscribedCityIds]"
       @update:visible="cityPickerVisible = $event"
-      @select="onPickCity"
+      @select="onCityPickedForVenue"
     />
   </PageLayout>
 </template>
@@ -212,6 +228,7 @@
 import PageLayout from "@/components/PageLayout/index.vue";
 import ArtistGridCell from "@/components/Subscribe/ArtistGridCell.vue";
 import CitySubCard from "@/components/Subscribe/CitySubCard.vue";
+import VenueSubPanel from "@/components/Subscribe/VenueSubPanel.vue";
 import ScheduleCalendar, {
   type ScheduleItem,
 } from "@/components/Subscribe/ScheduleCalendar.vue";
@@ -219,12 +236,13 @@ import EventCard from "@/components/EventCard/index.vue";
 import LoginPrompt from "@/components/LoginPrompt/index.vue";
 import CityPicker from "@/components/CityPicker/index.vue";
 import { useSubscribeStore } from "@/stores/subscribe";
+import { venueApi } from "@/api/venue";
 import { useUserStore } from "@/stores/user";
 import { useDictionaryStore } from "@/stores/dictionary";
 import { GENRES } from "@/constants/genres";
 import { todayYMD } from "@/constants/eventMeta";
 import { formatCity } from "@/constants/cities";
-import type { ArtistCardVO, CityCardVO, EventCardVO } from "@/types/subscription";
+import type { ArtistCardVO, CityCardVO, EventCardVO, VenuePlace } from "@/types/subscription";
 import type { Event } from "@/types/event";
 import type { DictOption } from "@/types/dictionary";
 import { onShow } from "@dcloudio/uni-app";
@@ -264,9 +282,9 @@ const tabs = ["偶像", "活动", "城市", "日程"];
 // 放在列表上方而不是 header 里：header 常驻不滚动，切 tab 会带动整块高度变化；
 // 放进 scroll-view 后它随内容一起走，切 tab 不会让头部跳动。
 const TAB_TIPS = [
-  "下列偶像关联的活动都将通知您",
-  "已订阅的活动有变动时将通知您",
-  "所选城市的新活动将通知您",
+  "下列偶像关联的活动都将通知你（最多 50 位）",
+  "已订阅的活动有变动时将通知你",
+  "不直接订阅城市（活动量太大），改订阅你常去的场馆，有新活动时通知你",
   "订阅过的演出在这里排成日历，可一键加入系统日历",
 ];
 
@@ -370,13 +388,14 @@ watch(
   }
 );
 
-/** 拉取三个 tab 需要的全部数据。onShow 与「登录后补拉」共用，避免两处复制同一段请求清单。 */
+/** 拉取各 tab 需要的全部数据。onShow 与「登录后补拉」共用，避免两处复制同一段请求清单。 */
 async function loadAllTabs() {
   await Promise.all([
     store.fetchMyArtists(),
     store.fetchMyEvents("ongoing", 1, EVENT_PAGE_SIZE),
     store.fetchMyEvents("expired", 1, EVENT_PAGE_SIZE),
     store.fetchMyCities(),
+    store.fetchMyVenues(),
     store.fetchArtistRelatedEvents(1, 5),
   ]);
 }
@@ -511,34 +530,81 @@ function onAddArtist() {
 // ── 添加城市 ──
 const cityPickerVisible = ref(false);
 
-function onAddCity() {
-  // + 号只在城市 tab 显示（v-if 控制），所以点 + 直接弹 CityPicker
-  if (!userStore.isLoggedIn) {
-    userStore.requireLogin({
-      dismissible: true,
-      reason: "subscribe_city_add",
-      onSuccess: () => {
-        cityPickerVisible.value = true;
-      },
-    });
-    return;
-  }
+/**
+ * 城市选择器目前**只有一个用途**：浏览某城市的场馆。
+ *
+ * App 端不再提供「订阅城市」的新增入口 —— 一个城市每月几十场活动，
+ * 订阅城市等于订阅一座城市的公告栏，量太大、噪音高；
+ * 用户真正反复关注的是常去的那几个场，所以新增订阅走「场馆」。
+ * （后端的城市订阅接口保留：独立小程序代码库还在用。）
+ */
+const venueCity = ref<{ id: string; name: string }>({ id: "", name: "" });
+const venueList = ref<VenuePlace[]>([]);
+const venueLoading = ref(false);
+
+/** 场馆订阅上限（与后端 service.MaxVenueSubscriptions 保持一致） */
+const VENUE_LIMIT = 20;
+
+/** 打开城市选择器：浏览某城市的场馆 */
+function onPickVenueCity() {
   cityPickerVisible.value = true;
 }
 
-async function onPickCity(city: { name: string; id: string }) {
+/** 选好城市 → 拉该城市的场馆列表 */
+async function onCityPickedForVenue(city: { name: string; id: string }) {
   cityPickerVisible.value = false;
   if (!city.id) {
     uni.showToast({ title: "未找到该城市", icon: "none" });
     return;
   }
+  venueCity.value = { id: city.id, name: city.name };
+  venueLoading.value = true;
   try {
-    await store.toggleCity(city.id, {});
-    uni.showToast({ title: "已订阅", icon: "success" });
-    await store.fetchMyCities();
-  } catch (e: any) {
-    uni.showToast({ title: e?.message || "订阅失败", icon: "none" });
+    const res = await venueApi.listByCity(city.id, 1, 50);
+    venueList.value = res?.list || [];
+  } catch (e) {
+    venueList.value = [];
+    uni.showToast({
+      title: (e as Error)?.message || "场馆加载失败",
+      icon: "none",
+    });
+  } finally {
+    venueLoading.value = false;
   }
+}
+
+/** 订阅场馆 */
+function onSubscribeVenue({ venue }: { venue: VenuePlace }) {
+  userStore.requireLogin({
+    dismissible: true,
+    reason: "subscribe_venue",
+    onSuccess: async () => {
+      try {
+        await store.toggleVenue(venue.id);
+        uni.showToast({ title: "已订阅", icon: "success" });
+        await store.fetchMyVenues();
+      } catch (e: any) {
+        uni.showToast({ title: e?.message || "订阅失败", icon: "none" });
+      }
+    },
+  });
+}
+
+/** 退订场馆 */
+function onUnsubscribeVenue({ venue }: { venue: VenuePlace }) {
+  userStore.requireLogin({
+    dismissible: true,
+    reason: "subscribe_venue",
+    onSuccess: async () => {
+      try {
+        await store.toggleVenue(venue.id);
+        uni.showToast({ title: "已退订", icon: "success" });
+        await store.fetchMyVenues();
+      } catch (e: any) {
+        uni.showToast({ title: e?.message || "操作失败", icon: "none" });
+      }
+    },
+  });
 }
 
 function onScrollLower() {

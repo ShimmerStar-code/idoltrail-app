@@ -162,19 +162,28 @@ import EventFilters from "@/components/EventFilters/index.vue"
 import EventCalendar from "@/components/EventCalendar/index.vue"
 import CityPicker from "@/components/CityPicker/index.vue"
 import { useVirtualList } from "@/composables/useVirtualList"
-import { cityEn } from "@/constants/cities"
 import { getGenreByCode } from "@/constants/genres"
 import { effectiveEventStatus, EVENT_TYPE_SLUG_TO_CODE } from "@/constants/eventMeta"
 import { eventApi, EVENT_SORT_OPTIONS, type EventSort } from "@/api/event"
 import { track } from "@/utils/analytics"
 import { ANALYTICS_EVENTS } from "@/constants/analytics"
+import { cityQueryValue, resolveCityCodes } from "@/utils/cityFilter"
 const store = useEventStore()
 const statusBarHeight = ref(20)
 
 // ── 筛选条件（全部受控，watch 自动触发 fetchList）──
-// selectedCity 存中文（"北京"），fetchList 内部经 cityEn() 转英文后传后端
+// selectedCity 存中文（"北京"），用于展示；
+// selectedCityCodes 存该城市在库内的**全部英文写法**，用于请求参数。
+//
+// 为什么不能拿中文名反查英文（原来用 cityEn()）：
+//   event_sessions.city 存的是录入原值，同一城市有多种写法
+//   （香港 = "Hong Kong" + "Xianggang"、西安 = "Xi'an" + "xian"），
+//   而包内静态表的"规范码"恰好与库内写法对不上
+//   （Xian→0 而 Xi'an→38、HongKong→0 而 Xianggang→18、Macau→0 而 Aomen→15）。
+//   所以写法集合必须问后端要（/city/normalize），见 utils/cityFilter.ts。
 const selectedGenre  = ref("")             // GENRES.code；空 = 全部
 const selectedCity   = ref("")             // 中文城市名；空 = 全国
+const selectedCityCodes = ref<string[]>([]) // 该城市在库内的全部英文写法
 const selectedType   = ref("")             // event_type code；空 = 全部
 const selectedStatus = ref("PUBLISHED")    // 默认只显示已发布
 const selectedDate   = ref("")             // YYYY-MM-DD；空 = 不按日期过滤
@@ -214,6 +223,7 @@ function onSortChange(code: EventSort) {
 /** 空态出口：清空筛选条件（状态保留「售票中」） */
 function resetFilters() {
   selectedCity.value = ""
+  selectedCityCodes.value = []
   selectedType.value = ""
   selectedGenre.value = ""
   selectedDate.value = ""
@@ -286,7 +296,7 @@ onLoad((options) => {
   // 注意：必须放在 onLoad 内、URL 参数已应用之后，避免 onLoad 里的
   // ref 赋值触发额外的 watch 回调，与末尾的 fetchList() 重复请求。
   watch(
-    [selectedGenre, selectedCity, selectedType, selectedStatus, selectedDate, selectedSort],
+    [selectedGenre, selectedCity, selectedCityCodes, selectedType, selectedStatus, selectedDate, selectedSort],
     () => fetchList(),
   )
 
@@ -459,8 +469,9 @@ async function fetchCalendarCounts() {
     if (selectedGenre.value)  params.genre  = selectedGenre.value
     if (selectedType.value)   params.type   = selectedType.value
     if (selectedCity.value) {
-      const en = cityEn(selectedCity.value) // 中文城市名 → 英文（与列表一致）
-      if (en) params.city = en
+      // 该城市在库内的全部写法（逗号分隔多值）
+      const city = cityQueryValue(selectedCityCodes.value);
+      if (city) params.city = city;
     }
     const res = await eventApi.calendarCounts(params)
     if (seq === calSeq) calCounts.value = res?.counts ?? {}
@@ -476,9 +487,9 @@ async function fetchList() {
   if (selectedGenre.value)  params.genre  = selectedGenre.value
   if (selectedType.value)   params.type   = selectedType.value
   if (selectedCity.value) {
-    // selectedCity 存中文，转英文传给后端（与 DB event_sessions.city 精确匹配）
-    const en = cityEn(selectedCity.value)
-    if (en) params.city = en
+    // 该城市在库内的全部写法（逗号分隔多值）
+    const city = cityQueryValue(selectedCityCodes.value);
+    if (city) params.city = city;
   }
   if (selectedDate.value) params.date = selectedDate.value
   params.order = selectedSort.value
@@ -509,8 +520,8 @@ function buildFilterParams(): Record<string, any> {
   if (selectedGenre.value)  params.genre  = selectedGenre.value
   if (selectedType.value)   params.type   = selectedType.value
   if (selectedCity.value) {
-    const en = cityEn(selectedCity.value)
-    if (en) params.city = en
+    const city = cityQueryValue(selectedCityCodes.value);
+    if (city) params.city = city;
   }
   if (selectedDate.value) params.date = selectedDate.value
   params.order = selectedSort.value
@@ -557,11 +568,15 @@ async function fetchAvailableCities() {
     if (selectedType.value)   params.type   = selectedType.value
     const res = await eventApi.listCities(params)
     availableCities.value = res?.list ?? []
-    // 若当前已选城市在新条件下已无活动，自动清空选择
+    // 若当前已选城市在新条件下已无活动，自动清空选择。
+    // 判断依据是「库内写法集合」—— 任何一个写法还在就保留：
+    // 同城可能有多种写法（香港 = "Hong Kong" + "Xianggang"），
+    // 只看其中一个会误清（另一个还有活动）。
     if (selectedCity.value) {
-      const en = cityEn(selectedCity.value)
-      if (en && !availableCities.value.includes(en)) {
-        selectedCity.value = ""
+      const codes = selectedCityCodes.value;
+      if (codes.length && !codes.some((c) => availableCities.value.includes(c))) {
+        selectedCity.value = "";
+        selectedCityCodes.value = [];
       }
     }
   } catch {
@@ -570,9 +585,15 @@ async function fetchAvailableCities() {
   }
 }
 
-function onCitySelected(city: { name: string; id: string }) {
-  // CityPicker 传回 { name: 中文城市名, id: region.id }，此处只需城市名做筛选
-  selectedCity.value = city.name
+async function onCitySelected(city: { name: string; id: string; code: string }) {
+  // CityPicker 传回 { name: 中文城市名, id: region.id, code: 英文写法 }
+  //
+  // 先解析库内写法、再改 selectedCity —— 顺序不能反：
+  // watch(selectedCity) 会触发 fetchList，codes 还没就位就会用旧写法发一次请求。
+  // （两个 ref 都在同一 tick 内赋值，watcher 只回调一次。）
+  const codes = await resolveCityCodes(city.code || city.name, city.name);
+  selectedCityCodes.value = codes;
+  selectedCity.value = city.name;
   nextTick(() => { cityPickerVisible.value = false })
 }
 

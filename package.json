@@ -37,6 +37,7 @@
     "@dcloudio/types": "3.4.31",
     "@dcloudio/uni-cli-shared": "3.0.0-5020620260917001",
     "@dcloudio/uni-stacktracey": "3.0.0-5020620260917001",
+    "@dcloudio/uni-uts-v1": "3.0.0-5020620260917001",
     "@dcloudio/vite-plugin-uni": "3.0.0-5020620260917001",
     "@mobilerun/sdk": "^6.1.0",
     "@vue/eslint-config-prettier": "^10.2.0",

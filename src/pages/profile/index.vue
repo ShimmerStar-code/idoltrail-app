@@ -103,7 +103,7 @@
         <!-- 赞助 Banner -->
         <!-- 必须受 DONATE_ENABLED 控制。此前这个 banner 是无条件渲染的，
              DONATE_ENABLED 在 src/utils/env.ts 里定义了却全仓无人引用，
-             于是即便支付通道没开通（后端对账接口未落地），
+             于是即便支付通道没开通（支付模块或外部配置未就绪），
              banner 依然恒显示 → 用户点进去必然失败。
              开关关闭时整块隐藏，而不是展示一个点不动的入口。 -->
         <view
@@ -215,13 +215,6 @@ const menuItems = [
     action: () => guardedNav("/pages/profile/messages"),
   },
   {
-    label: "推送设置",
-    icon: "/static/icons/notice_icon.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => guardedNav("/pages/profile/notifications"),
-  },
-  {
     label: "上传情报",
     icon: "/static/icons/submit_icon.svg",
     iconBg: "rgba(0,0,0,0.0)",
@@ -247,38 +240,24 @@ const menuItems = [
     iconColor: "#fff",
     action: () => guardedNav("/pages/profile/homepage"),
   },
+  // 「通用设置」是管理类入口的集合页：账号管理、推送设置、隐私政策、
+  // 用户协议、使用说明、关于我们都在里面。
+  //
+  // 为什么把这几项从一级菜单收进来：一级菜单只留**高频**操作
+  // （消息、上传、榜单、主页），低频的管理/合规类收进二级，
+  // 避免一级列表过长把「上传情报」这类转化入口挤到下面。
+  //
+  // ⚠️ 协议入口虽然下沉了，但「通用设置」页里它们**排在账号管理与推送设置之后、
+  // 使用说明之前**且**直接显示当前协议版本号** —— 合规要求用户能随时找到并
+  // 阅读现行协议，不能让它变成需要「点两下才看得见」的死角
+  // （见 pages/profile/settings.vue）。
   {
-    label: "账号管理",
-    icon: "/static/icons/account_icon.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => guardedNav("/pages/profile/account"),
-  },
-  {
-    label: "通用",
+    label: "通用设置",
     icon: "/static/icons/general.svg",
     iconBg: "rgba(0,0,0,0.0)",
     iconColor: "#fff",
     action: () => nav("/pages/profile/settings"),
   },
-  // 协议入口放在个人中心一级菜单：合规要求用户能随时找到并阅读现行协议，
-  // 不能只藏在「通用 - 关于我们」里。
-  {
-    label: "隐私政策",
-    icon: "/static/icons/general.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => nav("/pages/agreement/detail?type=privacy_policy"),
-  },
-  {
-    label: "用户协议",
-    icon: "/static/icons/general.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => nav("/pages/agreement/detail?type=user_agreement"),
-  },
-  // 「协议同意记录」不再单独占个人中心一级入口：同意时间与版本已经直接展示在
-  // 「隐私政策」「用户协议」页尾（src/pages/agreement/detail.vue），单开一页属于重复占用空间。
 ];
 
 function nav(url: string) {

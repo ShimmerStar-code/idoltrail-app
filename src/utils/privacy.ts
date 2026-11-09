@@ -35,8 +35,8 @@ const KEY_PRIVACY_AGREED_AT = 'fans:privacy:agreed_at'
  *
  * 必须**小于**调用方的兜底预算，否则权限申请还在等用户点，
  * 调用方已经先一步降级了，这次授权的结果会被白白浪费：
- *   · 首页 doLocate() 的兜底是 15s
- *   · CityPicker reLocate() 的兜底是 20s
+ *   · 首页 doLocate() 的兜底是 25s
+ *   · CityPicker reLocate() 的兜底是 30s
  * 取 10s：给系统权限弹窗留了足够的思考时间（正常是 1~3s），
  * 又保证最坏情况下权限这一段先结束、把余量留给随后的系统定位（8s）与逆地理请求。
  *
@@ -304,7 +304,6 @@ function doRequestLocationPermission(): Promise<boolean> {
     // 已授权就直接返回：用户拒绝后再进来、切换城市等场景会重复调用本函数，
     // 若无脑 requestPermissions，部分 ROM 在「已授予」状态下不触发回调，会永久 pending。
     if (checkAndroidLocationGranted()) {
-      console.log('[privacy] 定位权限已授予，跳过 requestPermissions')
       resolve(true)
       return
     }
@@ -342,7 +341,7 @@ function doRequestLocationPermission(): Promise<boolean> {
  *   3. **外层必须有兜底超时**。这是对约束 1 的最后一道防线：
  *      任何原因导致内部任务不 settle（包括再次踩到条件编译被剔除、执行器被清空），
  *      都只会多等 PERMISSION_TIMEOUT，绝不会把整条链路挂死。
- *      超时值必须小于调用方（首页 15s / CityPicker 20s）的兜底预算，否则会白等。
+ *      超时值必须小于调用方（首页 25s / CityPicker 30s）的兜底预算，否则会白等。
  *      实现上不用 Promise.race 而是自己包一层 Promise：race 拿不到定时器句柄，
  *      快路径先返回时定时器仍会悬挂触发，见下方 clearTimeout。
  *

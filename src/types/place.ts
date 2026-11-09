@@ -12,17 +12,8 @@ export interface Place {
   city: string
 }
 
-// 场馆详情页活动列表项（精简结构，按 design 卡片）
-export interface PlaceEvent {
-  id: number
-  title: string
-  type: string
-  status: string
-  created_at: string
-  is_new: boolean
-  city: string
-  event_date: string
-  start_time: string
-  format: string
-  artists: { id: string; name: string }[]
-}
+// ⚠️ 场馆活动列表不再用这里的精简结构：
+// 场馆页改用 GET /places/:id/events/list（与 /events 列表同构），
+// 数据类型直接复用 @/types/event 的 Event，交给 EventCard 渲染。
+// （旧的 /places/:id/events 精简接口留给独立小程序代码库，App 端不再调用。）
+

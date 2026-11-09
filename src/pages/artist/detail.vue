@@ -88,17 +88,22 @@
           <view v-if="members.length" class="section-pad">
             <view class="section-title-row">
               <text class="section-title section-title--highlight">组合成员</text>
-              <text class="section-all">{{ members.length }} 位</text>
+              <text class="section-all">{{ membersTotal }} 位</text>
             </view>
             <view class="members-card">
               <view
-                v-for="m in visibleMembers"
+                v-for="m in members"
                 :key="m.id"
                 class="member-item"
                 hover-class="member-item--hover"
                 @click="toMember(m)"
               >
-                <image class="member-avatar" :src="m.avatar" mode="aspectFill" />
+                <image
+                  class="member-avatar"
+                  :src="m.avatar"
+                  mode="aspectFill"
+                  lazy-load
+                />
                 <view class="member-meta">
                   <text class="member-name">{{ m.name }}</text>
                   <text v-if="m.country" class="member-country">{{
@@ -108,10 +113,13 @@
                 <uni-icons type="right" size="small" color="#C0C4CC" />
               </view>
             </view>
-            <view v-if="members.length > visibleMembers.length" class="list-cap">
-              <text class="list-cap-text"
-                >仅显示前 {{ visibleMembers.length }} 位，共 {{ members.length }} 位</text
+            <view v-if="membersHasMore" class="list-cap">
+              <text class="list-cap-text list-cap-text--tap" @click="loadMoreMembers"
+                >加载更多（已显示 {{ members.length }} / {{ membersTotal }}）</text
               >
+            </view>
+            <view v-else-if="membersLoading" class="list-cap">
+              <text class="list-cap-text">加载中...</text>
             </view>
           </view>
 
@@ -173,9 +181,11 @@
 
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { onLoad, onShow } from "@dcloudio/uni-app";
 import { useArtistStore } from "@/stores/artist";
+import { artistApi } from "@/api/artist";
+import type { ArtistDetail } from "@/types/artist";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
@@ -423,15 +433,46 @@ interface MemberEntry {
 }
 
 /**
- * 当前艺人是组合时，relations 里 relation_type=member 的就是它的成员。
- * related_id 为空（历史脏数据/成员已删除）直接过滤掉——没有 id 就跳不过去，
- * 渲染一个点不动的卡片只会让用户困惑。
+ * 成员分页状态。
+ *
+ * 成员走独立接口 /artists/:id/members 分页拉，不从详情响应的 relations 里取：
+ * 组合的成员可以有几百位（AKB48 435 位），全量塞进详情响应是 ~90KB 纯冗余。
  */
-const members = computed<MemberEntry[]>(() => {
-  const d = store.detail;
-  if (!d || d.type?.toLowerCase() !== "group") return [];
-  return (d.relations || [])
-    .filter((r) => /member/i.test(r.relation_type || "") && r.related_id)
+const members = ref<MemberEntry[]>([]);
+const membersTotal = ref(0);
+const membersPage = ref(0);
+const membersHasMore = ref(false);
+const membersLoading = ref(false);
+
+/** 每页条数：20 条一屏，翻页看完全部成员 */
+const MEMBER_PAGE_SIZE = 20;
+
+/**
+ * 把详情里的 relations 转成成员条目（回退路径用）。
+ *
+ * 口径说明（踩过坑，别再改回只看 relation_type）：
+ * 库里 artist_relations.relation_type 存的**不是关系语义，而是被关联艺人的类型**
+ * —— 爬虫批量写入时落的是 Group / Person / Orchestra / Character…，
+ * 全库 20 万行里 relation_type='member' 的只有后台手工录的个位数。
+ * 只按 /member/i 过滤，成员区块永远为空。
+ *
+ * 所以两路都认：
+ *   1. relation_type 显式是 member（后台手工录入的语义关系）；
+ *   2. related_type 是 Person / Character —— 这才是库里真实的成员关系。
+ *
+ * related_id / related_name 为空的（脏数据、成员已删除）一律过滤掉：
+ * 没有 id 就跳不过去，渲染一个点不动的卡片只会让用户困惑。
+ */
+function membersFromRelations(detail: ArtistDetail | null): MemberEntry[] {
+  if (!detail || detail.type?.toLowerCase() !== "group") return [];
+  return (detail.relations || [])
+    .filter(
+      (r) =>
+        !!r.related_id &&
+        !!r.related_name &&
+        (/member/i.test(r.relation_type || "") ||
+          /^(person|character)$/i.test(r.related_type || "")),
+    )
     .map((r) => ({
       id: r.related_id,
       name: r.related_name || r.related_id,
@@ -444,16 +485,89 @@ const members = computed<MemberEntry[]>(() => {
       }),
       country: r.related_country || "",
     }));
-});
+}
 
 /**
- * 组合成员展示上限。
+ * 加载成员。
  *
- * 大型组合（成员几十人）会把这一段撑得很长，每个成员还带一张头像 ——
- * 头像解码进内存，比节点本身重得多。24 个够看，超出部分折叠并给出提示。
+ * append=false：重新加载第一页（换页 / 详情重拉后调用）。
+ * append=true ：追加下一页（点「加载更多」）。
+ *
+ * 后端还没上 /artists/:id/members 时会走到 catch → 回退到 relations，
+ * 功能不坏（只是没有翻页）。
  */
-const MEMBERS_MAX = 24;
-const visibleMembers = computed(() => members.value.slice(0, MEMBERS_MAX));
+async function loadMembers(id: string, append = false) {
+  if (!id || membersLoading.value) return;
+  membersLoading.value = true;
+  try {
+    const page = append ? membersPage.value + 1 : 1;
+    const res = await artistApi.members(id, {
+      page,
+      pageSize: MEMBER_PAGE_SIZE,
+    });
+    const list = (res?.list || []).map(
+      (m): MemberEntry => ({
+        id: m.id,
+        name: m.name || m.id,
+        // 库里没配头像时 avatar_url 为空串，按 type/gender 兜底，
+        // 避免女成员显示男头像。
+        avatar: getArtistAvatarSrc({
+          avatar_url: m.avatar_url || undefined,
+          type: m.type,
+          gender: m.gender,
+        }),
+        country: m.country || "",
+      }),
+    );
+    members.value = append ? [...members.value, ...list] : list;
+    membersPage.value = res?.page ?? page;
+    membersTotal.value = res?.total ?? members.value.length;
+    membersHasMore.value =
+      list.length > 0 && members.value.length < membersTotal.value;
+  } catch (e) {
+    // 成员接口不可用：回退到详情里的 relations（老后端 / 网络异常）。
+    // 回退是全量的（relations 一次给全），所以照样能显示全部成员，只是没有翻页。
+    console.warn("[artist] 成员分页接口不可用，回退到 relations:", e);
+    if (!append) {
+      const fallback = membersFromRelations(store.detail);
+      members.value = fallback;
+      membersTotal.value = fallback.length;
+      membersPage.value = 1;
+      membersHasMore.value = false;
+    }
+  } finally {
+    membersLoading.value = false;
+  }
+}
+
+/** 「加载更多」：追加下一页成员 */
+function loadMoreMembers() {
+  if (!artistId.value || membersLoading.value || !membersHasMore.value) return;
+  loadMembers(artistId.value, true);
+}
+
+/**
+ * 详情到位后拉成员。
+ *
+ * 只有组合才有成员（个人艺人不发请求）；同一个艺人只拉一次 ——
+ * 从成员页返回组合页会触发详情重拉，但成员数据没变，没必要重复请求。
+ */
+let _membersLoadedFor = "";
+watch(
+  () => [store.detail?.id, store.detail?.type] as const,
+  ([id, type]) => {
+    if (!id || id !== artistId.value) return;
+    if (String(type || "").toLowerCase() !== "group") {
+      members.value = [];
+      membersTotal.value = 0;
+      membersHasMore.value = false;
+      return;
+    }
+    if (_membersLoadedFor === id) return;
+    _membersLoadedFor = id;
+    loadMembers(id);
+  },
+);
 
 /** 作品集展示上限（同上：条目随运营数据无上限增长） */
 const WORKS_MAX = 20;
@@ -907,6 +1021,11 @@ function toEventList() {
 .list-cap-text {
   font-size: 22rpx;
   color: rgba(153, 153, 153, 1);
+}
+
+/* 可点击的「加载更多」：颜色加深一点，让用户知道能点 */
+.list-cap-text--tap {
+  color: rgba(90, 90, 90, 1);
 }
 
 /* 组合成员 */

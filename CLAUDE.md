@@ -45,6 +45,40 @@ uni-app 的 **JS 启动比原生晚**，三方 SDK（uni-push / 厂商通道 / W
 - 通知、相册、相机同理由用户主动操作触发。
 - `manifest.json` 不申请 `READ_PHONE_STATE`。
 
+### 城市定位与筛选：城市码由后端说了算
+
+**别再用 `constants/cities.ts` 的静态映射表反查城市码。** 它和库内真实写法对不上，
+拿它筛活动会一条都筛不出来（实测：`Xian`→0 而 `Xi'an`→38、`HongKong`→0 而
+`Xianggang`→18、`Macau`→0 而 `Aomen`→15、`Hohhot`→0 而 `Huhehaote`→8、
+`Urumqi`→0 而 `Wulumuqi`→5、`NewYork`→0 而 `New York`→591、
+`LosAngeles`→0 而 `Los Angeles`→337、`KualaLumpur`→0 而 `Kuala Lumpur`）。
+
+链路：
+
+```
+设备 → https://ip.idolact.cn/api（直连，自建）→ { country, city, region }（英文原值）
+     → 后端 GET /city/normalize → { name(中文), code, codes[] }
+     → /events?city=codes.join(',')
+```
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| IP 服务直连 | `src/api/ipGeo.ts` | 设备**直连** `ip.idolact.cn`。该服务只返回调用方自己的位置（传 `?ip=` 与各种 `X-Forwarded-For` / `CF-Connecting-IP` 实测全部无效），所以**不能由后端代理**（代理只能拿到服务器自己的位置）。必须走 HTTPS（Android 9+ 禁明文） |
+| 归一化 | `src/api/geo.ts` 的 `normalizeCity` | 问后端要「这个城市在库里有哪几种写法」。后端口径 = `regions` ∪ `region_aliases`（Meilisearch 别名搜索）→ 别名闭包 → `event_sessions.city` 里的真实写法集合 |
+| 筛选参数 | `src/utils/cityFilter.ts` | `resolveCityCodes()` 取写法集合、`cityQueryValue()` 拼逗号分隔串。后端 `/events?city=` 支持逗号多值（单值退化为 `col = ?` 以保住函数索引 `idx_sessions_city_lower`） |
+| 定位主链路 | `src/utils/location.ts` | 返回**结构化**结果 `LocatedCity{ name, code, codes[], country, regionId }`；缓存 key `fans:locate:city:v3`（v2 是字符串结构、v1 曾缓存过「景山」这类街道名） |
+
+红线：
+
+- **同一个城市在库里有多种写法**（香港 = `Hong Kong` + `Xianggang`、西安 = `Xi'an` + `xian`），
+  筛选时必须带上**全部**写法，漏一个就漏一批场次。`codes` 就是这个集合。
+- `constants/cities.ts` 现在只用于**展示**（中文名 ↔ 英文名的本地映射）与热门城市名单，
+  **不再用于请求参数**。改它不会影响筛选结果，改后端数据才会。
+- `CityPicker` 的 `select` 事件带 `{ name, id, code }`：`name` 中文（展示）、
+  `id` 是 region.id（订阅用）、`code` 是英文写法（筛活动用）。
+- 城市未命中站内（`matched: false`）时按定位失败处理（首页回落全国视图），
+  **不要**静默塞一个筛不出活动的假城市进缓存。
+
 ### 登录
 
 App 端无免密登录能力，登录链路固定为：
@@ -181,6 +215,55 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 
 业务失败 reject 的 `Error` 上带 `code`（后端 errno，见 `bizError()`）。
 需要按错误类型分流的调用方读 `e.code`，**不要再匹配文案**（后端改文案就失效）。
+
+### 统一升级：uni-upgrade-center-app（全量升级 / 整包 APK）
+
+**插件已装**：`src/uni_modules/uni-upgrade-center-app`（0.11.3），
+依赖 `uts-openSchema` / `uts-progressNotification` 两个 UTS 原生插件
+（编译需要 `@dcloudio/uni-uts-v1`，已进 devDependencies，版本与 `@dcloudio/*` 对齐）。
+
+**当前阶段只做全量升级**（`type = 'native_app'`，整包 APK），**不做 wgt 热更新**：
+本项目的改动普遍涉及 manifest / 原生模块 / 分包结构，热更新后行为不可预期。
+
+**版本数据源仍在自研后端，不用插件的 uniCloud 云函数**：
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| 版本真源 | 后端 `app_versions` 表（MySQL）+ `GET /public/app-versions/latest` | 运营在 admin 后台「App 版本与下载」录入；官网下载区 / 二维码 / App 内提示**同源** |
+| 升级入口 | `src/utils/appUpdate.ts` | 取版本 → 比对 → 组装插件的 `UniUpgradeCenterResult` → `updateManager.showUpdate()` |
+| 升级 UI | 插件 `pages/upgrade-popup.vue` | 更新说明、强制/非强制、下载进度、原生安装器唤起 |
+| 手动入口 | `src/pages/profile/about.vue` 的「检查更新」 | 之前是 `openExternalUrl(download_url)` 跳浏览器下载（要用户自己找文件再点安装，还要处理"允许安装未知来源"）→ 已换成插件升级页 |
+| 启动自动检查 | `App.vue` 的 `afterPrivacyConsent()` → `scheduleStartupUpdateCheck()` | 延迟 3s、静默失败、同一版本不重复打扰（`fans:upgrade:prompted:v1`） |
+
+**为什么不用插件自带的 `checkUpdate()`**：它硬编码调 uniCloud 云函数 `uni-upgrade-center`，
+版本记录放在 uniCloud 集合 `opendb-app-versions`。若再引入一套，
+运营就要在**两个地方**录版本、官网下载区还得单独维护 —— 那不是「统一」，是又多一个源。
+插件的 `showUpdate(packageInfo)` 明确支持**显式传入包信息**，所以不需要云函数、
+不需要 uniCloud 数据库、不需要第二个服务空间。
+
+红线：
+
+- **检查更新要发网络请求 → 必须在隐私同意之后**。`appUpdate.ts` 自己再查一次
+  `hasPrivacyConsent()`，不依赖调用方的正确性。
+- **升级页路由必须注册在 `src/pages.json` 的主包**：插件的 `showUpdate` 用的是
+  写死的绝对路径 `/uni_modules/uni-upgrade-center-app/pages/upgrade-popup`，
+  放进分包会 navigateTo 失败（uni_modules 的页面**不会**自动进路由表）。
+- **iOS 不走整包升级**：分发是 App Store / TestFlight，App 内没有可直装的整包，
+  `appUpdate.ts` 返回 `unsupported_platform`，UI 提示去商店。
+- `manifest.json` 需要 `REQUEST_INSTALL_PACKAGES` 权限（Android 8+ 安装 APK 必需，
+  属功能性权限，不在启动时申请）。
+- **版本号三处要对齐**：`manifest.json` 的 `versionName` / `versionCode`（versionCode 必须递增，
+  否则覆盖安装被系统拒绝）、`src/constants/appInfo.ts` 的 `APP_VERSION_NAME`（关于页展示）、
+  后台 `app_versions` 的 `version_name`。「关于我们」页显示的是**运行时**版本
+  （`getAppVersion()`），不是包内常量 —— 常量是发版快照，会与实际安装版本脱节。
+- **插件的 TS 源码不参与本项目的类型检查**（它是按 uni-app x + 条件编译写的，
+  自身在传统 uni-app 的 TS 环境里就编译不过）。做法见 `tsconfig.json`：
+  `exclude` 排掉 `src/uni_modules` + `paths` 把插件的两个模块指向
+  `src/types/uni-upgrade-center.d.ts`（本地维护的声明）。运行时不受影响
+  （vite 用自己的 alias 解析，仍加载插件真实源码）。
+- ⚠️ `src/uni_modules/uni-upgrade-center-app/utils/update-manager.ts` 第 1 行有**本地补丁**
+  （类型导入改成 `import type`），消掉每次构建的两条 "is not exported by" 警告。
+  插件升级覆盖后需重新打。
 
 ### 弹层与提示
 
@@ -357,15 +440,18 @@ VITE_API_BASE_URL=https://api.idoltrail.com/api/v1   # .env.dev：当前**也指
 | 字段 | `.env.dev` | `.env.prod` | 说明 |
 |------|-----------|------------|------|
 | `VITE_PUSH_ENABLED` | `true` | `true` | uni-push 2.0 总开关；关掉则只剩应用内通知 |
-| `VITE_DONATE_ENABLED` | `true` | `false` | 捐赠入口总闸，关闭时入口整个隐藏 |
+| `VITE_DONATE_ENABLED` | `false` | `false` | 捐赠入口总闸，关闭时入口整个隐藏。**支付通道未接入前两个环境都关**（dev 也关 —— 内测包同样不能给用户看一个点不动的入口）；接入并验收后再改 `true` |
 | `VITE_DONATE_IOS_ENABLED` | `false` | `false` | iOS 需 StoreKit IAP，默认关 |
-| `VITE_DONATE_NATIVE_READY` | `false` | `false` | Android 原生支付，后端对账接口未落地前必须关 |
+| `VITE_DONATE_NATIVE_READY` | `false` | `false` | Android 微信 App 支付；`wx_app` 配置、`Payment` 模块和真机验收完成前必须关 |
 | `VITE_ADMIN_ENABLED` | `false` | `false` | 内置管理后台入口，生产构建再被 `checkAdminGate()` 按死一次 |
 | `VITE_APPLE_LOGIN_ENABLED` | `false` | `false` | Apple 登录入口，默认关（见「一键登录」章节的启用条件） |
 
-> ⚠️ `.env.dev` 的 `VITE_DONATE_ENABLED=true` 只在 `VITE_DONATE_NATIVE_READY=true` 时才有意义：
-> 后者关着时（当前状态，后端对账接口未落地）Android 端进 donate 页会看到「通道未开通」，
-> 属于开发期已知状态，**不要**据此以为捐赠链路已通。
+> ⚠️ 捐赠入口当前**完全关闭**（`VITE_DONATE_ENABLED=false`，dev/prod 都是）。
+> 开关机制保留在 `src/utils/env.ts` 的 `DONATE_ENABLED`，个人中心的赞助 banner
+> 受它控制（`pages/profile/index.vue`）—— 支付链路接入并真机验收通过后，
+> 把该开关改回 `true` 即可恢复入口，**不要**去删 banner 或改页面结构。
+> `pages/profile/donate.vue` 页面本身也有三重降级（总闸 / iOS 开关 / Android 开关），
+> 即使有人直接输 URL 也只会看到「通道暂未开放」而不会误下单。
 
 npm scripts 已带 `--mode=dev` / `--mode=prod`。**HBuilderX GUI 的运行/发行不经过 CLI**，
 它写死用 `development` / `production` 这两个 mode，因此 `vite.config.ts` 里的
@@ -586,8 +672,9 @@ wsl.exe -e bash -lc "cd '/mnt/c/Users/trunk/Desktop/shimmer-star/idoltrail/idolt
 
 ## 构建与发布
 
-CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试，打 `v*.*.*` tag 产出
-可交付的 App 资源包 artifact（APK/IPA 仍由 DCloud 云打包出，CI 不碰服务器、不需要任何 Secrets）。
+CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：普通推送只构建与测试；`v*.*.*` tag
+调用 HBuilderX CLI 云打包 Android APK，转存 OSS 后同步后台并创建 GitHub Release。
+发布凭据只放在 GitHub `production` Environment，普通 CI 不读取。
 
 ## 管理后台
 
@@ -603,9 +690,10 @@ CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试
 1. `src/manifest.json` 的 `appid` 已是真实 DCloud AppID `__UNI__F1F9279`（已与 DCloud 后台核对），**不要再改成占位符**。
 2. `src/pages/admin/` 未从包内移除（`pages.json` 无法按 mode 条件编译）。已通过构建期开关封死入口，但要彻底消除需后端对 `/admin/*` 加来源校验，并把后台迁到独立 Web 控制台。
 3. 隐私政策正文已与 App 实际采集数据对齐（不再声明微信 openid / unionid），上架前仍需人工复核一遍 `privacyDescription` 与实际 SDK 采集行为是否一致。
-4. Android 原生支付的**客户端**已实现（`src/utils/nativePay.ts` 走 `uni.requestPayment`），
-   缺的是后端 `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，
-   因此 `VITE_DONATE_NATIVE_READY` 保持 `false`。
+4. Android 微信 App 支付的客户端与服务端链路已实现（`POST /donations` 使用 `channel=wx_app`，
+   客户端 `requestWxAppPay` 调起微信，服务端回调入账并提供订单查询）。支付宝 `alipay_app` 尚未开放服务端下单。
+   当前 `VITE_DONATE_NATIVE_READY` 保持 `false`，需先补 `Payment` 模块，并完成微信移动应用 AppID、
+   包名与正式签名登记、商户号绑定、支付证书配置及真机验收。
 5. 一键登录依赖 3 件外部条件，缺一则入口静默消失（不会崩，但功能等于没上线）：
    DCloud 后台已为 `__UNI__F1F9279` 开通一键登录服务、云函数 `univerify-exchange`
    已上传并 URL 化、后端已填 `UNIVERIFY_*`。真机验证必须用**含 OAuth 模块的基座或云打包**，

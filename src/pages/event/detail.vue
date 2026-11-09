@@ -217,7 +217,13 @@
               >
                 <text
                   class="session-tab-text"
-                  :style="i === activeSessionIdx ? { color: theme.ink } : {}"
+                  :style="
+                    isSessionExpired(s)
+                      ? { color: '#e64340' }
+                      : i === activeSessionIdx
+                        ? { color: theme.ink }
+                        : {}
+                  "
                   >{{ sessionLabel(s, i, d.sessions.length) }}</text
                 >
               </view>
@@ -230,7 +236,10 @@
               :style="{ background: withAlpha(theme.ink, 0.08) }"
             >
               <view class="session-badge">
-                <text class="session-badge-text" :style="{ color: theme.ink }">{{
+                <text
+                  class="session-badge-text"
+                  :style="{ color: isSessionExpired(currentSession) ? '#e64340' : theme.ink }"
+                  >{{
                   sessionLabel(
                     currentSession,
                     activeSessionIdx,
@@ -266,13 +275,16 @@
                 }}</text>
               </view>
 
-              <!-- 时间列表 -->
+              <!-- 时间列表：点击打开场次日历（看今天在哪、这场活动哪天演） -->
               <view
                 v-if="currentSession.times && currentSession.times.length > 0"
                 :class="[
                   'detail-row',
                   currentSession.times.length > 1 && 'detail-row--times',
                 ]"
+                :hover-class="sessionDates.length ? 'detail-row-hover' : ''"
+                :hover-stay-time="120"
+                @tap="openCalendar"
               >
                 <view class="detail-icon-wrap">
                   <image
@@ -292,6 +304,7 @@
                     >{{ formatSessionTime(t) }}</text
                   >
                 </view>
+                <text v-if="sessionDates.length" class="dtxt-arrow">›</text>
               </view>
 
               <!-- 场馆：绑定了 place_id 才可点，跳场馆详情页 -->
@@ -411,12 +424,10 @@
         <view class="section">
           <view class="notice-title-wrap">
             <view class="notice-title-bar"></view>
-            <text class="section-title notice-section-title">
-              {{ noticeIsGeneric ? "观演须知（通用提示）" : "观演须知" }}
-            </text>
+            <text class="section-title notice-section-title">观演须知</text>
           </view>
           <view v-if="noticeIsGeneric" class="notice-source-tip">
-            本场未提供专属须知，以下为通用入场提示，请以现场公告为准。
+            本场未提供主办方专属须知，以下为行业通行的入场提示，请以现场公告为准。
           </view>
           <view class="notice-box">
             <view v-for="(item, i) in noticeItems" :key="i" class="notice-item">
@@ -444,11 +455,21 @@
         store.loading ? "加载中..." : "活动信息不存在"
       }}</view>
     </view>
+
+    <!-- 场次日历：点场次的日期行弹出 -->
+    <SessionCalendar
+      v-model:visible="calendarVisible"
+      :mark-dates="sessionDates"
+      :current-date="currentSessionDate"
+      :theme-color="theme.ink"
+      @pick="onCalendarPick"
+    />
   </PageLayout>
 </template>
 
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
+import SessionCalendar from "@/components/SessionCalendar/index.vue";
 import { getArtistAvatarSrc } from "@/utils/avatar";
 import { useEventStore } from "@/stores/event";
 import { useSubscribeStore } from "@/stores/subscribe";
@@ -472,6 +493,7 @@ import {
   EVENT_STATUS_OPTIONS,
   STATUS_BADGE_STYLE,
   effectiveEventStatus,
+  todayYMD,
   GENERIC_AUDIENCE_NOTICE,
 } from "@/constants/eventMeta";
 import { onLoad } from "@dcloudio/uni-app";
@@ -553,11 +575,60 @@ const SESSIONS_MAX = 30;
 const SESSION_TIMES_MAX = 20;
 const ARTISTS_MAX = 12;
 
-const visibleSessions = computed(() => (d.value?.sessions ?? []).slice(0, SESSIONS_MAX));
+function isSessionExpired(session: EventSession, now: Date = new Date()): boolean {
+  const endDate = [
+    session.event_date,
+    ...(session.times ?? []).map((time) => time.event_date),
+  ]
+    .filter((date): date is string => !!date)
+    .reduce((latest, date) => {
+      const value = date.slice(0, 10);
+      return value > latest ? value : latest;
+    }, "");
+  return session.status === "ENDED" || (!!endDate && endDate < todayYMD(now));
+}
+
+/**
+ * 场次的过期判定用**最晚**一天：一场跨多天的演出（11-08~11-10），
+ * 到 11-09 还没演完，不算过期。后端 session 排序用的是同一个口径。
+ */
+function sessionLastDate(session: EventSession): string {
+  return [
+    session.event_date,
+    ...(session.times ?? []).map((time) => time.event_date),
+  ]
+    .filter((date): date is string => !!date)
+    .reduce((latest, date) => {
+      const value = date.slice(0, 10);
+      return value > latest ? value : latest;
+    }, "");
+}
+
+/** 待定：连一天具体时间都没有 */
+function isSessionPending(session: EventSession): boolean {
+  return !sessionLastDate(session);
+}
+
+/**
+ * 场次档位：0 有效 / 1 待定 / 2 过期。
+ *
+ * 待定**不算过期活动**，排在有效之后、过期之前（与后端 SessionOrderBy 同口径）。
+ */
+function sessionRank(session: EventSession, now: Date = new Date()): number {
+  if (isSessionExpired(session, now)) return 2;
+  if (isSessionPending(session)) return 1;
+  return 0;
+}
+
+const visibleSessions = computed(() => {
+  const now = new Date();
+  return [...(d.value?.sessions ?? [])]
+    .sort((a, b) => sessionRank(a, now) - sessionRank(b, now))
+    .slice(0, SESSIONS_MAX);
+});
 
 const currentSession = computed<EventSession | null>(() => {
-  const list = d.value?.sessions ?? [];
-  return list[activeSessionIdx.value] ?? null;
+  return visibleSessions.value[activeSessionIdx.value] ?? null;
 });
 
 const visibleSessionTimes = computed(() => currentSession.value?.times?.slice(0, SESSION_TIMES_MAX) ?? []);
@@ -566,6 +637,54 @@ const visibleArtists = computed(() => (d.value?.artists ?? []).slice(0, ARTISTS_
 
 function selectSession(idx: number) {
   activeSessionIdx.value = idx;
+}
+
+// ── 场次日历 ────────────────────────────────────────────────────
+const calendarVisible = ref(false);
+
+/** 活动所有场次的演出日期（去重，YYYY-MM-DD）——日历上的「演出日」标记 */
+const sessionDates = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const s of d.value?.sessions ?? []) {
+    if (s.event_date) set.add(String(s.event_date).slice(0, 10));
+    for (const t of s.times ?? []) {
+      if (t.event_date) set.add(String(t.event_date).slice(0, 10));
+    }
+  }
+  return Array.from(set).sort();
+});
+
+/** 当前场次的日期（单日取当天，多日取最早那天）——日历上的定位与高亮 */
+const currentSessionDate = computed<string>(() => {
+  const s = currentSession.value;
+  if (!s) return "";
+  const dates = [
+    s.event_date,
+    ...(s.times ?? []).map((t) => t.event_date),
+  ]
+    .filter((x): x is string => !!x)
+    .map((x) => String(x).slice(0, 10))
+    .sort();
+  return dates[0] ?? "";
+});
+
+function openCalendar() {
+  if (!sessionDates.value.length) return;
+  calendarVisible.value = true;
+}
+
+/** 点了日历上的某个演出日 → 切到那一场 */
+function onCalendarPick({ date }: { date: string }) {
+  const idx = visibleSessions.value.findIndex((s) =>
+    [
+      s.event_date,
+      ...(s.times ?? []).map((t) => t.event_date),
+    ]
+      .filter((x): x is string => !!x)
+      .some((x) => String(x).slice(0, 10) === date),
+  );
+  if (idx >= 0) selectSession(idx);
+  calendarVisible.value = false;
 }
 
 // 换活动（onLoad 里 fetchDetail 拉的是另一个 id）或场次数变化时，
@@ -693,14 +812,21 @@ function openMap(session: EventSession) {
   });
 }
 
-/** 格式化场次时间：不带城市名（城市已在卡片标题显示） */
+/**
+ * 格式化场次时间：不带城市名（城市已在卡片标题显示）。
+ *
+ * 月/日**补零到两位**（2026.11.07 而非 2026.11.7）：巡演动辄十几场，
+ * 单数字月份/日期的文本宽度不一致，竖排对齐时参差不齐，很难看。
+ */
 function formatSessionTime(t: { event_date: string; start_time?: string | null }) {
   const datePart = (t.event_date ?? "").split("T")[0];
   if (!datePart) return "";
   const [y, m, day] = datePart.split("-").map(Number);
   const weekday = WEEKDAYS[new Date(y, m - 1, day).getDay()];
   const time = t.start_time?.slice(0, 5) ?? "";
-  return `${y}.${m}.${day} 周${weekday}${time ? " " + time : ""}`.trim();
+  const mm = String(m).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${y}.${mm}.${dd} 周${weekday}${time ? " " + time : ""}`.trim();
 }
 
 function goBack() {

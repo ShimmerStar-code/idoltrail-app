@@ -24,6 +24,21 @@ export interface ArtistWork {
   sort_order: number
 }
 
+/**
+ * 组合成员（GET /api/v1/artists/:id/members 分页下发）。
+ *
+ * 与 detail.relations 分开的原因：组合的成员可以有几百个（AKB48 435 位），
+ * 塞进详情响应里是 ~90KB 的纯冗余；分页下发既能翻页看全，传输量也最小。
+ */
+export interface ArtistMember {
+  id: string
+  name: string
+  avatar_url: string
+  country: string
+  type: string
+  gender: string
+}
+
 export interface ArtistDetail extends Artist {
   detail: {
     birthday: string

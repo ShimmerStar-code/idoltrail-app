@@ -34,6 +34,11 @@ export interface Event {
     artist_id?: string
     artist_name: string
     avatar_url?: string
+    /** 艺人主题色 #RRGGBB，后台 Web 端配置；空/缺失表示未配置 */
+    theme_color?: string
+    /** 艺人分类（Person/Group…）与性别，用于默认头像兜底 */
+    type?: string
+    gender?: string
   }[]
 }
 

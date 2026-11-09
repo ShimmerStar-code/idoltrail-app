@@ -131,6 +131,13 @@
            "navigationBarTitleText": "我的主页",
            "navigationStyle": "custom"
          }
+      },
+      {
+         "path": "uni_modules/uni-upgrade-center-app/pages/upgrade-popup",
+         "style": {
+           "navigationBarTitleText": "版本更新",
+           "navigationStyle": "custom"
+         }
       }
    ],
    "tabBar": {

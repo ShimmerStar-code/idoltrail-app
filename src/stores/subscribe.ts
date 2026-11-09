@@ -19,6 +19,7 @@ import type {
   ArtistCardVO,
   CityCardVO,
   EventCardVO,
+  VenueCardVO,
 } from '@/types/subscription'
 
 /**
@@ -34,7 +35,7 @@ import type {
  * @param ok     接口是否成功
  */
 function trackSubscribe(
-  target: 'artist' | 'city' | 'event',
+  target: 'artist' | 'city' | 'event' | 'venue',
   id: string,
   action: 'subscribe' | 'unsubscribe',
   ok: boolean,
@@ -63,6 +64,8 @@ export const useSubscribeStore = defineStore('subscribe', () => {
   const subscribedArtistIds = ref<Set<string>>(new Set())
   const subscribedCityIds = ref<Set<string>>(new Set())
   const subscribedEventIds = ref<Set<number>>(new Set())
+  /** 已订阅场馆 id（places.id，UUID 字符串） */
+  const subscribedVenueIds = ref<Set<string>>(new Set())
 
   /**
    * 用「原地增删」把 current 同步成 next，保留按 ID 的精确失效粒度。
@@ -93,6 +96,8 @@ export const useSubscribeStore = defineStore('subscribe', () => {
   // 把所有字段重新代理一遍。数组整体的替换（赋值 new Array）照常触发响应式。
   const myArtists = shallowRef<ArtistCardVO[]>([])
   const myCities = ref<CityCardVO[]>([])
+  /** 已订阅场馆（订阅页「场馆订阅」区） */
+  const myVenues = shallowRef<VenueCardVO[]>([])
   const myEventsOngoing = shallowRef<EventCardVO[]>([])
   const myEventsExpired = shallowRef<EventCardVO[]>([])
   const artistRelatedEvents = shallowRef<EventCardVO[]>([])
@@ -108,6 +113,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     eventsOngoing: false,
     eventsExpired: false,
     related: false,
+    venues: false,
   })
 
   // 防并发：onMounted + onShow 在首次加载时都会触发，用此标记避免重复请求
@@ -138,6 +144,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
   let _artistsSeq = 0
   let _citiesSeq = 0
   let _relatedSeq = 0
+  let _venuesSeq = 0
 
   /**
    * 归一化 ids_only 响应。
@@ -166,15 +173,17 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       // 早前活动侧为了拿 id 集合，拉的是 ongoing + expired 各 100 条完整
       // EventCardVO（每条都带艺人/场次/时间等嵌套结构），为了几十个 id 传回
       // 几百 KB JSON —— 这是订阅态反显最大的开销来源，且在 App 端表现为进页卡顿。
-      const [a, c, e] = await Promise.allSettled([
+      const [a, c, e, v] = await Promise.allSettled([
         subscriptionApi.myArtistIds(),
         subscriptionApi.myCityIds(),
         subscriptionApi.myEventIds(),
+        subscriptionApi.myVenueIds(),
       ])
       // 已登出 / 已有更新的请求 → 丢弃本次响应
       if (seq !== _idsSeq) return
       if (a.status === 'fulfilled') applyIdSetDiff(subscribedArtistIds, readIdSet(a.value))
       if (c.status === 'fulfilled') applyIdSetDiff(subscribedCityIds, readIdSet(c.value))
+      if (v.status === 'fulfilled') applyIdSetDiff(subscribedVenueIds, readIdSet(v.value))
       if (e.status === 'fulfilled') {
         // 后端 user_subscriptions.target_id 是字符串列（artist/city 用 uuid），
         // 活动 id 存进去也是字符串；而 subscribedEventIds 全 App 按 number 查
@@ -218,6 +227,20 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       applyIdSetDiff(subscribedCityIds, new Set(r.list.map((x) => x.city.id)))
     } finally {
       if (seq === _citiesSeq) loading.value.cities = false
+    }
+  }
+
+  /** 拉取已订阅场馆（订阅页「场馆订阅」区）。 */
+  async function fetchMyVenues(): Promise<void> {
+    const seq = ++_venuesSeq
+    loading.value.venues = true
+    try {
+      const r = await subscriptionApi.myVenues()
+      if (seq !== _venuesSeq) return
+      myVenues.value = r.list ?? []
+      applyIdSetDiff(subscribedVenueIds, new Set(myVenues.value.map((x) => x.place.id)))
+    } finally {
+      if (seq === _venuesSeq) loading.value.venues = false
     }
   }
 
@@ -286,6 +309,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
   const isArtistSubscribed = (id: string): boolean => subscribedArtistIds.value.has(id)
   const isCitySubscribed = (id: string): boolean => subscribedCityIds.value.has(id)
   const isEventSubscribed = (id: number): boolean => subscribedEventIds.value.has(id)
+  const isVenueSubscribed = (id: string): boolean => subscribedVenueIds.value.has(id)
 
   // ─────────────────────── 写 ───────────────────────
 
@@ -370,6 +394,34 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     }
   }
 
+  /**
+   * 切换场馆订阅状态（乐观更新 + 失败回滚，与艺人/城市/活动同一套）。
+   *
+   * 场馆订阅 = 「我盯的这个场馆有新活动时通知我」。
+   */
+  async function toggleVenue(id: string): Promise<boolean> {
+    const had = subscribedVenueIds.value.has(id)
+    const next = new Set(subscribedVenueIds.value)
+    if (had) next.delete(id); else next.add(id)
+    applyIdSetDiff(subscribedVenueIds, next)
+
+    try {
+      if (had) {
+        await subscriptionApi.unsubscribeVenue(id)
+      } else {
+        await subscriptionApi.subscribeVenue(id)
+      }
+      trackSubscribe('venue', id, had ? 'unsubscribe' : 'subscribe', true)
+      return !had
+    } catch (e) {
+      const rollback = new Set(subscribedVenueIds.value)
+      if (had) rollback.add(id); else rollback.delete(id)
+      applyIdSetDiff(subscribedVenueIds, rollback)
+      trackSubscribe('venue', id, had ? 'unsubscribe' : 'subscribe', false)
+      throw e
+    }
+  }
+
   /** 城市卡的"类型/标签"筛选偏好；本地+远端同步
    *  乐观更新：先写本地状态让 UI 立即响应，API 失败则回滚。
    *  避免"选全部后立即点已关联活动"时读到旧 extra 的竞态问题。
@@ -400,6 +452,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     _artistsSeq++
     _citiesSeq++
     _relatedSeq++
+    _venuesSeq++
     _eventsSeq.ongoing++
     _eventsSeq.expired++
     _fetchingIds.value = false
@@ -407,8 +460,10 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     applyIdSetDiff(subscribedArtistIds, new Set())
     applyIdSetDiff(subscribedCityIds, new Set())
     applyIdSetDiff(subscribedEventIds, new Set())
+    applyIdSetDiff(subscribedVenueIds, new Set())
     myArtists.value = []
     myCities.value = []
+    myVenues.value = []
     myEventsOngoing.value = []
     myEventsExpired.value = []
     myEventsTotalOngoing.value = 0
@@ -421,6 +476,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
       eventsOngoing: false,
       eventsExpired: false,
       related: false,
+      venues: false,
     }
   }
 
@@ -436,9 +492,11 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     subscribedArtistIds,
     subscribedCityIds,
     subscribedEventIds,
+    subscribedVenueIds,
     // 富列表
     myArtists,
     myCities,
+    myVenues,
     myEventsOngoing,
     myEventsExpired,
     myEventsTotalOngoing,
@@ -449,10 +507,12 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     isArtistSubscribed,
     isCitySubscribed,
     isEventSubscribed,
+    isVenueSubscribed,
     // 读
     fetchMySubscribedIds,
     fetchMyArtists,
     fetchMyCities,
+    fetchMyVenues,
     fetchMyEvents,
     fetchArtistRelatedEvents,
     hasMoreEvents,
@@ -460,6 +520,7 @@ export const useSubscribeStore = defineStore('subscribe', () => {
     toggleArtist,
     toggleCity,
     toggleEvent,
+    toggleVenue,
     updateCityExtra,
     // 重置
     reset,

@@ -297,7 +297,7 @@
             >
             <text class="rule__item"
               >5. 榜单会展示昵称、头像与贡献条数。不希望出现在榜单上，可通过
-              「我的 - 通用 - 关于我们 - 意见反馈」联系我们下榜。</text
+              「我的 - 通用设置 - 关于我们 - 意见反馈」联系我们下榜。</text
             >
           </view>
           <button class="rule__btn" @click="closeRule">知道了</button>

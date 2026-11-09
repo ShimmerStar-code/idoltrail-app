@@ -3,7 +3,7 @@
     "appid" : "__UNI__F1F9279",
     "description" : "演唱会、音乐节、见面会等偶像活动信息订阅平台~",
     "versionName" : "0.1.2",
-    "versionCode" : "101",
+    "versionCode" : "102",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
@@ -65,7 +65,13 @@
                        运行时权限，只在用户主动点「加入日历」时才需要，
                        写不进时会提示去系统设置授权，见 src/utils/calendar.ts。 */
                     "<uses-permission android:name=\"android.permission.WRITE_CALENDAR\"/>",
-                    "<uses-permission android:name=\"android.permission.READ_CALENDAR\"/>"
+                    "<uses-permission android:name=\"android.permission.READ_CALENDAR\"/>",
+                    /* 安装升级包（plus.runtime.install）所需。
+                       Android 8.0+ 属于「安装未知来源应用」：用户在系统设置里
+                       给本应用授权后才能装。属于**功能性**权限 ——
+                       只有用户主动点升级、在升级页确认安装时才会用到，
+                       不在启动时申请、不弹权限框（见 src/utils/appUpdate.ts）。 */
+                    "<uses-permission android:name=\"android.permission.REQUEST_INSTALL_PACKAGES\"/>"
                 ],
                 "permissionExternalStorage" : {
                     /* request:none 与下方 permissions 列表一致：本 App 不读写公共存储，

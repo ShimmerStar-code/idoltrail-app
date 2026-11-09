@@ -280,7 +280,6 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
       //   · /auth/refresh    —— 续期是内部机制，不是用户感知到的业务请求。
       const trackLatency = path !== '/analytics/events' && !path.startsWith('/auth/refresh')
       const startedAt = Date.now()
-      console.log(`[perf] req:start ${path}`)
       uni.request({
         url: BASE_URL + path,
         method: method as UniApp.RequestOptions['method'],
@@ -297,7 +296,6 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           if (trackLatency) {
             latencyReporter?.(path, Date.now() - startedAt, res.statusCode >= 200 && res.statusCode < 400, res.statusCode)
           }
-          console.log(`[perf] req:end ${path} ${Date.now() - startedAt}ms`)
 
           const body = res.data as ApiResponse<T> | null | undefined
           if (!body || typeof body !== 'object') {

@@ -16,6 +16,7 @@ import {
   pushCapability,
 } from '@/composables/usePush'
 import { useNotificationStore } from '@/stores/notification'
+import { scheduleStartupUpdateCheck } from '@/utils/appUpdate'
 
 const userStore = useUserStore()
 const notifStore = useNotificationStore()
@@ -52,7 +53,6 @@ let consentBootstrapped = false
 async function afterPrivacyConsent() {
   if (consentBootstrapped) return
   consentBootstrapped = true
-  console.log('[App] privacy consent granted, start post-consent init')
 
   // 推送（uni-push 2.0）。未安装插件 / 开关关闭时为 no-op。
   // 通知触达的唯一通道：前台由 pushMessageReceived 回调刷新，
@@ -69,8 +69,16 @@ async function afterPrivacyConsent() {
   //   - 401 → request.ts 自动 refresh;refresh 失败由 notifySessionExpired 弹强制 modal
   //   - 没 token → 什么都不做,保持未登录态,等用户主动触发
   // App 端没有 wx.login 这类免密登录手段,**绝不**做静默登录。
-  const ok = await userStore.bootstrapSession()
-  console.log('[App] bootstrapSession', ok, 'agreementRequired=', userStore.agreementRequired)
+  await userStore.bootstrapSession()
+
+  // 版本检查（全量升级 / 整包 APK）。
+  //
+  // 为什么放在这里而不是 onLaunch：检查更新要发网络请求，
+  // 必须等用户同意隐私协议之后（合规硬线，见 utils/appUpdate.ts 的说明）。
+  //
+  // 为什么延迟 3s：启动瞬间网络最拥堵，且隐私弹窗可能正在关闭动画中，
+  // 此时弹升级页会被 mask 遮住（用户看到"弹了个东西但点不动"）。
+  scheduleStartupUpdateCheck()
 }
 
 // 隐私同意状态变化（老用户启动时已是 true）→ 触发上面的初始化
@@ -83,8 +91,6 @@ watch(
 )
 
 onLaunch(async () => {
-  console.log('[App] Launch')
-
   // 0) 埋点会话初始化：生成 session_id、标记首次安装。
   //    注意：此时**还没有**隐私同意，所以 track() 只会把 app_launch 暂存在内存里，
   //    真正上报要等到用户同意之后（SDK 内部有门控）。
@@ -107,7 +113,6 @@ onLaunch(async () => {
   //    判成「未经用户同意即收集个人信息」（引擎1/引擎3 的报法）。
   if (!hasPrivacyConsent()) {
     if (isNativePrivacyAgreed()) {
-      console.log('[App] 原生隐私弹窗已取得同意，同步本地状态，不再弹自绘弹窗')
       savePrivacyConsent()
       userStore.markPrivacyConsented()
       // 本次启动**新取得**同意（原生模板弹窗）→ 记一条隐私同意事件。
@@ -126,7 +131,6 @@ onLaunch(async () => {
   void syncAgreementsFromServer()
     .then((r) => {
       if (!r.fetched || !r.changed.length) return
-      console.log('[App] 协议版本已更新：', r.changed.join(','))
       if (!r.privacyChanged) return
       if (!getPrivacyVersion()) {
         // 用户此前从未同意过：隐私弹窗已经开着，用户点「同意」时记录的就是
@@ -159,13 +163,11 @@ onShow(async () => {
   // 而 VITE_PUSH_ENABLED=false / 插件缺失时回调根本不会注册（此时无任何实时通道）。
   // 因此回前台固定回查一次通知接口，保证角标不会长时间失真。
   if (userStore.isLoggedIn) notifStore.refreshAfterPush()
-  console.log('[App] Show')
 })
 
 onHide(() => {
   // 进后台由系统通知栏承接触达，无需任何额外动作。
   // 原先此处会断开通知 WebSocket —— 该通道已随方案调整下线。
-  console.log('[App] Hide')
   // 埋点：本次会话结束（切后台），带上会话时长
   track(ANALYTICS_EVENTS.SESSION_END, { duration_ms: sessionDurationMs() })
   // 切后台时把待上报的埋点队列尽快送出去：

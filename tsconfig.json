@@ -4,7 +4,13 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@/uni_modules/uni-upgrade-center-app/utils/update-manager": [
+        "./src/types/uni-upgrade-center.d.ts"
+      ],
+      "@/uni_modules/uni-upgrade-center-app/utils/call-check-version": [
+        "./src/types/uni-upgrade-center.d.ts"
+      ]
     },
     "lib": ["esnext", "dom"],
     "types": ["@dcloudio/types"],
@@ -17,5 +23,9 @@
     "src/**/*.vue",
     "shims-uni.d.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/uni_modules"
+  ]
 }

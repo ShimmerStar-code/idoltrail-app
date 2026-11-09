@@ -52,7 +52,27 @@ function rasterize(svgText, px) {
   return { pixels: img.pixels, width: img.width, height: img.height }
 }
 
-/** 求 alpha > 0 的墨迹包围盒 */
+/**
+ * 读 PNG 的 IHDR 块，拿宽高。
+ *
+ * PNG 结构：8 字节签名 + IHDR 块（长度4 + 类型4 + 宽4 + 高4 ...），
+ * 所以宽在第 16~19 字节、高在第 20~23 字节（都是大端 uint32）。
+ */
+function pngSize(buffer) {
+  if (buffer.length < 24) throw new Error('PNG 太短')
+  const sig = buffer.subarray(0, 8)
+  if (
+    sig[0] !== 0x89 || sig[1] !== 0x50 || sig[2] !== 0x4e || sig[3] !== 0x47
+  ) {
+    throw new Error('不是合法 PNG')
+  }
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  }
+}
+
+/** 求 alpha > 0 的墨迹包围盒（返回**光栅像素**坐标） */
 function inkBounds({ pixels, width, height }) {
   let minX = width
   let minY = height
@@ -77,31 +97,52 @@ function inkBounds({ pixels, width, height }) {
  *
  * 这样渲染到 SIZE x SIZE 画布时，图形长边恰好占 SIZE * FILL，
  * 且图形在画布中居中 —— 4 个图标视觉大小一致。
+ *
+ * ⚠️ 关键：viewBox 用的是 **SVG 用户单位**（本项目源文件是 32x32 viewBox），
+ *    而 inkBounds 求出的是**光栅像素**坐标（324x324 空间）。
+ *    两者差一个缩放比，必须换算回去 —— 直接把像素坐标塞进 viewBox 会渲染出空白图。
  */
-function buildCroppedSvg(svgText, bounds) {
-  const w = bounds.maxX - bounds.minX + 1
-  const h = bounds.maxY - bounds.minY + 1
+function buildCroppedSvg(svgText, bounds, rasterSize) {
+  const vb = readViewBox(svgText)
+  const scale = rasterSize / vb.width // 光栅像素 / 用户单位
+  const minX = bounds.minX / scale
+  const minY = bounds.minY / scale
+  const maxX = bounds.maxX / scale
+  const maxY = bounds.maxY / scale
+
+  const w = maxX - minX + 1 / scale
+  const h = maxY - minY + 1 / scale
   const side = Math.max(w, h) / FILL
-  const cx = (bounds.minX + bounds.maxX + 1) / 2
-  const cy = (bounds.minY + bounds.maxY + 1) / 2
-  const vb = `${cx - side / 2} ${cy - side / 2} ${side} ${side}`
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  const viewBox = `${cx - side / 2} ${cy - side / 2} ${side} ${side}`
+
   return svgText.replace(/<svg\b([^>]*)>/, (_m, attrs) => {
     const kept = attrs
       .replace(/\s*width="[^"]*"/, '')
       .replace(/\s*height="[^"]*"/, '')
       .replace(/\s*viewBox="[^"]*"/, '')
-    return `<svg${kept} width="${SIZE}" height="${SIZE}" viewBox="${vb}">`
+    return `<svg${kept} width="${SIZE}" height="${SIZE}" viewBox="${viewBox}">`
   })
+}
+
+/** 读出源 SVG 的 viewBox */
+function readViewBox(svgText) {
+  const m = svgText.match(/viewBox="([^"]+)"/)
+  if (!m) throw new Error('SVG 缺少 viewBox')
+  const [, , w, h] = m[1].trim().split(/\s+/).map(Number)
+  return { x: 0, y: 0, width: w, height: h }
 }
 
 /** 生成一张 PNG */
 function renderIcon(svgPath, outPath) {
   const svgText = fs.readFileSync(svgPath, 'utf8')
   // 第一遍：高分辨率光栅化，只为求墨迹包围盒
-  const probe = rasterize(svgText, SIZE * 4)
+  const rasterSize = SIZE * 4
+  const probe = rasterize(svgText, rasterSize)
   const bounds = inkBounds(probe)
   // 第二遍：换 viewBox 后渲染到目标尺寸
-  const finalSvg = buildCroppedSvg(svgText, bounds)
+  const finalSvg = buildCroppedSvg(svgText, bounds, rasterSize)
   const r = new Resvg(finalSvg, {
     fitTo: { mode: 'width', value: SIZE },
     background: 'rgba(0,0,0,0)',
@@ -118,8 +159,23 @@ for (const ic of ICONS) {
     const b = renderIcon(svgFile, outFile)
     const w = b.maxX - b.minX + 1
     const h = b.maxY - b.minY + 1
+    // 自检：产物必须是 SIZE x SIZE 的合法 PNG，且体积不能小得离谱。
+    // viewBox 换算错一个缩放比就会渲染出近乎空白的 PNG，而空白图在原生
+    // tabBar 上表现为「文字在、图标不见了」，很难一眼看出原因。
+    const buf = fs.readFileSync(outFile)
+    const dim = pngSize(buf)
+    if (dim.width !== SIZE || dim.height !== SIZE) {
+      throw new Error(
+        `${ic}${variant}.png 尺寸异常（${dim.width}x${dim.height}，应为 ${SIZE}x${SIZE}）`,
+      )
+    }
+    if (buf.length < 800) {
+      throw new Error(
+        `${ic}${variant}.png 只有 ${buf.length} 字节，几乎是空白图，渲染有问题`,
+      )
+    }
     console.log(
-      `${ic}${variant}.png  ${fs.statSync(outFile).size} bytes  墨迹 ${w}x${h}`,
+      `${ic}${variant}.png  ${buf.length} bytes  ${dim.width}x${dim.height}  源墨迹 ${w}x${h}`,
     )
   }
 }

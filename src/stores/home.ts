@@ -111,7 +111,7 @@ export const useHomeStore = defineStore('home', () => {
     }
   }
 
-  /** 加载下一页并 append（翻页语义，不走缓存） */
+  /** 加载下一页并 append（翻页请求直接访问网络，合并结果回写当前筛选缓存） */
   async function loadMore(params: Record<string, any> = {}) {
     if (loadingMore.value) return
     if (loading.value) return
@@ -138,8 +138,11 @@ export const useHomeStore = defineStore('home', () => {
             merged.push(x)
           }
         }
-        feed.value = { ...res, list: merged.slice(0, FEED_MAX) }
-        const kept = feed.value.list.length
+        const page = { ...res, list: merged.slice(0, FEED_MAX) }
+        feed.value = page
+        const cached = _cache.get(sigAtStart)
+        putBounded(sigAtStart, { data: page, ts: cached?.ts ?? Date.now() })
+        const kept = page.list.length
         hasMore.value = res.list.length > 0 && kept < res.total && kept < FEED_MAX
       }
     } catch (e) {

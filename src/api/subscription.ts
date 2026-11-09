@@ -9,6 +9,7 @@ import type {
   EventListEnvelope,
   PageEnvelope,
   SubscribeResult,
+  VenueCardVO,
 } from '@/types/subscription'
 
 export const subscriptionApi = {
@@ -62,4 +63,14 @@ export const subscriptionApi = {
     request<SubscribeResult>('/subscriptions/events', { method: 'POST', data: { event_id } }),
   unsubscribeEvent: (id: number) =>
     request<SubscribeResult>(`/subscriptions/events/${id}`, { method: 'DELETE' }),
+
+  // ── 场馆 ──
+  /** 只取已订阅场馆 id 数组（给场馆详情页的订阅按钮反显） */
+  myVenueIds: () => request<{ ids: string[] }>('/subscriptions/venues?ids_only=true'),
+  /** 已订阅场馆卡列表（订阅页「场馆订阅」区） */
+  myVenues: () => request<{ list: VenueCardVO[] }>('/subscriptions/venues'),
+  subscribeVenue: (venue_id: string) =>
+    request<SubscribeResult>('/subscriptions/venues', { method: 'POST', data: { venue_id } }),
+  unsubscribeVenue: (id: string) =>
+    request<SubscribeResult>(`/subscriptions/venues/${id}`, { method: 'DELETE' }),
 }
