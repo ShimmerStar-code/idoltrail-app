@@ -35,6 +35,8 @@ import { useNotificationStore } from '@/stores/notification'
 import { useSubscribeStore } from '@/stores/subscribe'
 import { useEventStore } from '@/stores/event'
 import { syncPushToken, unbindPushToken } from '@/composables/usePush'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 
 export interface LoginModalOptions {
   /** 是否允许关闭（true=用户可点 × 或"暂不登录"；false=强制登录） */
@@ -390,17 +392,24 @@ export const useUserStore = defineStore('user', () => {
     code: string
     profile?: { nickname?: string; avatar_url?: string; gender?: 0 | 1 | 2 }
   }): Promise<PhoneLoginResponse> {
-    const resp = await authApi.phoneLogin({
-      phone: opts.phone,
-      code: opts.code,
-      ...(opts.profile || {}),
-      device_id: getDeviceId(),
-      device_type: getDeviceType(),
-      device_model: getDeviceModel(),
-      os_version: getOsVersion(),
-      app_version: getAppVersion(),
-    })
+    let resp: PhoneLoginResponse
+    try {
+      resp = await authApi.phoneLogin({
+        phone: opts.phone,
+        code: opts.code,
+        ...(opts.profile || {}),
+        device_id: getDeviceId(),
+        device_type: getDeviceType(),
+        device_model: getDeviceModel(),
+        os_version: getOsVersion(),
+        app_version: getAppVersion(),
+      })
+    } catch (e) {
+      track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'sms', ok: 0 })
+      throw e
+    }
     setLoginPayload(resp)
+    track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'sms', ok: 1 })
     return resp
   }
 
@@ -416,17 +425,24 @@ export const useUserStore = defineStore('user', () => {
     openID: string
     profile?: { nickname?: string; avatar_url?: string; gender?: 0 | 1 | 2 }
   }): Promise<OneKeyLoginResponse> {
-    const resp = await authApi.oneKeyLogin({
-      access_token: opts.accessToken,
-      openid: opts.openID,
-      ...(opts.profile || {}),
-      device_id: getDeviceId(),
-      device_type: getDeviceType(),
-      device_model: getDeviceModel(),
-      os_version: getOsVersion(),
-      app_version: getAppVersion(),
-    })
+    let resp: OneKeyLoginResponse
+    try {
+      resp = await authApi.oneKeyLogin({
+        access_token: opts.accessToken,
+        openid: opts.openID,
+        ...(opts.profile || {}),
+        device_id: getDeviceId(),
+        device_type: getDeviceType(),
+        device_model: getDeviceModel(),
+        os_version: getOsVersion(),
+        app_version: getAppVersion(),
+      })
+    } catch (e) {
+      track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'onekey', ok: 0 })
+      throw e
+    }
     setLoginPayload(resp)
+    track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'onekey', ok: 1 })
     return resp
   }
 
@@ -455,17 +471,24 @@ export const useUserStore = defineStore('user', () => {
     nonce?: string
     profile?: { nickname?: string; avatar_url?: string; gender?: 0 | 1 | 2 }
   }): Promise<AppleLoginResponse> {
-    const resp = await authApi.appleLogin({
-      code: opts.code,
-      ...(opts.nonce ? { nonce: opts.nonce } : {}),
-      ...(opts.profile || {}),
-      device_id: getDeviceId(),
-      device_type: getDeviceType(),
-      device_model: getDeviceModel(),
-      os_version: getOsVersion(),
-      app_version: getAppVersion(),
-    })
+    let resp: AppleLoginResponse
+    try {
+      resp = await authApi.appleLogin({
+        code: opts.code,
+        ...(opts.nonce ? { nonce: opts.nonce } : {}),
+        ...(opts.profile || {}),
+        device_id: getDeviceId(),
+        device_type: getDeviceType(),
+        device_model: getDeviceModel(),
+        os_version: getOsVersion(),
+        app_version: getAppVersion(),
+      })
+    } catch (e) {
+      track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'apple', ok: 0 })
+      throw e
+    }
     setLoginPayload(resp)
+    track(ANALYTICS_EVENTS.LOGIN_RESULT, { method: 'apple', ok: 1 })
     return resp
   }
 

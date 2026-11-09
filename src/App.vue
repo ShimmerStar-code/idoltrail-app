@@ -2,11 +2,12 @@
 import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { watch } from 'vue'
 import { useUserStore } from '@/stores/user'
-import { useAppStore } from '@/stores/app'
 import { setAuthExpiredHandler, setTokenRefreshedHandler, refreshSessionIfStale } from '@/utils/request'
 import { syncDefaultAvatars } from '@/utils/defaultAvatar'
 import { hasPrivacyConsent, getPrivacyVersion, isNativePrivacyAgreed, savePrivacyConsent } from '@/utils/privacy'
 import { syncAgreementsFromServer } from '@/utils/agreementContent'
+import { flushAnalytics, initAnalytics, sessionDurationMs, track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 import {
   initPush,
   syncPushToken,
@@ -15,9 +16,9 @@ import {
   pushCapability,
 } from '@/composables/usePush'
 import { useNotificationStore } from '@/stores/notification'
+import { scheduleStartupUpdateCheck } from '@/utils/appUpdate'
 
 const userStore = useUserStore()
-const appStore = useAppStore()
 const notifStore = useNotificationStore()
 
 // 401 + refresh 失败时由 request.ts 回调；注入式避开 request ↔ userStore 循环依赖
@@ -39,15 +40,19 @@ setTokenRefreshedHandler(() => {
  *   · initPush() —— plus.push.addEventListener 会拉起 uni-push 厂商通道 SDK，
  *     小米 / 华为 SDK 在初始化阶段就会读设备标识去注册通道；
  *   · checkNotifyPermissionHint() —— 读系统信息判断 Android 版本；
- *   · bootstrapSession() —— 带 token 请求后端，附带设备与 IP 信息；
- *   · checkAndShowDisclaimer() —— 免责声明弹窗若与隐私弹窗同时弹会叠成两层 mask，
- *     顺序上应该在隐私告知之后。
+ *   · bootstrapSession() —— 带 token 请求后端，附带设备与 IP 信息。
+ *
+ * ⚠️ 启动阶段只保留「隐私同意」这一个必须打断用户的弹窗。
+ * 数据免责声明曾经在这里弹（首次启动），已改为常驻说明：
+ * 见「关于我们 → 数据说明与侵权举报」、活动详情页底部、上传情报页提交区。
+ * 理由：免责声明不需要用户授权任何能力，只是内容声明；
+ * 放在启动时弹会与隐私弹窗、协议补签弹窗叠成多层 mask，
+ * 用户还没看到任何内容就被拦三次，留存直接崩掉。
  */
 let consentBootstrapped = false
 async function afterPrivacyConsent() {
   if (consentBootstrapped) return
   consentBootstrapped = true
-  console.log('[App] privacy consent granted, start post-consent init')
 
   // 推送（uni-push 2.0）。未安装插件 / 开关关闭时为 no-op。
   // 通知触达的唯一通道：前台由 pushMessageReceived 回调刷新，
@@ -64,11 +69,16 @@ async function afterPrivacyConsent() {
   //   - 401 → request.ts 自动 refresh;refresh 失败由 notifySessionExpired 弹强制 modal
   //   - 没 token → 什么都不做,保持未登录态,等用户主动触发
   // App 端没有 wx.login 这类免密登录手段,**绝不**做静默登录。
-  const ok = await userStore.bootstrapSession()
-  console.log('[App] bootstrapSession', ok, 'agreementRequired=', userStore.agreementRequired)
+  await userStore.bootstrapSession()
 
-  // 免责声明（首次启动）。放在隐私同意之后，避免两个弹窗叠在一起。
-  appStore.checkAndShowDisclaimer()
+  // 版本检查（全量升级 / 整包 APK）。
+  //
+  // 为什么放在这里而不是 onLaunch：检查更新要发网络请求，
+  // 必须等用户同意隐私协议之后（合规硬线，见 utils/appUpdate.ts 的说明）。
+  //
+  // 为什么延迟 3s：启动瞬间网络最拥堵，且隐私弹窗可能正在关闭动画中，
+  // 此时弹升级页会被 mask 遮住（用户看到"弹了个东西但点不动"）。
+  scheduleStartupUpdateCheck()
 }
 
 // 隐私同意状态变化（老用户启动时已是 true）→ 触发上面的初始化
@@ -81,7 +91,11 @@ watch(
 )
 
 onLaunch(async () => {
-  console.log('[App] Launch')
+  // 0) 埋点会话初始化：生成 session_id、标记首次安装。
+  //    注意：此时**还没有**隐私同意，所以 track() 只会把 app_launch 暂存在内存里，
+  //    真正上报要等到用户同意之后（SDK 内部有门控）。
+  initAnalytics()
+  track(ANALYTICS_EVENTS.APP_LAUNCH)
 
   // 0) 默认头像本地化：每天首次冷启动静默从 OSS 覆盖一份到本地缓存。
   //    包内已有一份兜底，本次调用不 await、不阻塞启动；失败就用包内那份。
@@ -99,9 +113,11 @@ onLaunch(async () => {
   //    判成「未经用户同意即收集个人信息」（引擎1/引擎3 的报法）。
   if (!hasPrivacyConsent()) {
     if (isNativePrivacyAgreed()) {
-      console.log('[App] 原生隐私弹窗已取得同意，同步本地状态，不再弹自绘弹窗')
       savePrivacyConsent()
       userStore.markPrivacyConsented()
+      // 本次启动**新取得**同意（原生模板弹窗）→ 记一条隐私同意事件。
+      // 老用户启动时已有同意，不记（否则「同意次数」会被启动次数淹没，看不出真实转化）。
+      track(ANALYTICS_EVENTS.PRIVACY_CONSENT, { version: getPrivacyVersion() })
     } else {
       userStore.openPrivacyPopup('app_launch')
     }
@@ -115,7 +131,6 @@ onLaunch(async () => {
   void syncAgreementsFromServer()
     .then((r) => {
       if (!r.fetched || !r.changed.length) return
-      console.log('[App] 协议版本已更新：', r.changed.join(','))
       if (!r.privacyChanged) return
       if (!getPrivacyVersion()) {
         // 用户此前从未同意过：隐私弹窗已经开着，用户点「同意」时记录的就是
@@ -148,13 +163,16 @@ onShow(async () => {
   // 而 VITE_PUSH_ENABLED=false / 插件缺失时回调根本不会注册（此时无任何实时通道）。
   // 因此回前台固定回查一次通知接口，保证角标不会长时间失真。
   if (userStore.isLoggedIn) notifStore.refreshAfterPush()
-  console.log('[App] Show')
 })
 
 onHide(() => {
   // 进后台由系统通知栏承接触达，无需任何额外动作。
   // 原先此处会断开通知 WebSocket —— 该通道已随方案调整下线。
-  console.log('[App] Hide')
+  // 埋点：本次会话结束（切后台），带上会话时长
+  track(ANALYTICS_EVENTS.SESSION_END, { duration_ms: sessionDurationMs() })
+  // 切后台时把待上报的埋点队列尽快送出去：
+  // App 被系统杀掉时进程内的定时器不会再跑，队列要留在本地等下次启动才补报。
+  flushAnalytics()
 })
 </script>
 
@@ -170,7 +188,6 @@ onHide(() => {
 /* 全局样式 */
 
 /* 强制设置所有全局弹窗的 z-index，确保覆盖页面 header (z-index: 100) */
-.disclaimer-popup-high-zindex,
 .login-popup-high-zindex,
 .privacy-popup-high-zindex,
 .notification-popup-high-zindex {

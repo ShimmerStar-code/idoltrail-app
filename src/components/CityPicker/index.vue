@@ -7,6 +7,9 @@
   2. regionApi.listCities()：兜底，从后端 regions 表拉全量城市（订阅页等其他场景）。
 
   pick() 始终 emit 中文城市名（"北京"），上层统一以中文存储 selectedCity。
+  同时 emit 英文写法 code —— 界面用中文显示，筛活动要用英文库内写法，
+  两者不是一回事（静态映射表里的"规范码"对不上库内真实写法，
+  Xian→0 而 Xi'an→38、HongKong→0 而 Xianggang→18）。
 
   props:
     visible           boolean
@@ -16,7 +19,7 @@
 
   emits:
     update:visible
-    select        string   选中的城市中文名
+    select        { name, id, code }   选中的城市（中文名 / region.id / 英文写法）
 -->
 <template>
   <view v-if="visible" class="city-mask" @click="close" @touchmove.stop.prevent>
@@ -117,11 +120,20 @@ import { regionApi, type RegionItem } from "@/api/region"
 import { formatCity, ALL_CITIES_META, HOT_CITIES } from "@/constants/cities"
 import HighlightText from "@/components/SearchOverlay/HighlightText.vue"
 import { locateCity } from "@/utils/location"
+import { useHotStore } from "@/stores/hot"
 
 interface CityOption {
   id: string        // 用于 isSubscribed 判断；动态模式下复用英文名
   displayName: string  // 中文名，展示 + emit 给父组件
   region: string    // 省份 / 国家标签
+  /**
+   * 英文写法：筛活动时直接用它（或它的等价写法集合）当 /events?city= 的值。
+   *
+   * 两种数据源都能给出：
+   *   · availableCities → /events/cities 的原值（就是库内真实写法，最准）
+   *   · regions API   → regions.name（如 "Xi'an" / "Hong Kong"）
+   */
+  code: string
 }
 
 const props = defineProps<{
@@ -133,7 +145,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:visible", v: boolean): void
-  (e: "select", city: { name: string; id: string }): void
+  (e: "select", city: { name: string; id: string; code: string }): void
 }>()
 
 const keyword        = ref("")
@@ -151,6 +163,9 @@ const totalCount     = ref(0)    // 总数量
 const loadingMore    = ref(false) // 是否正在加载更多
 const hasMore        = computed(() => allCities.value.length < totalCount.value) // 是否还有更多
 
+// 运营配置的热门城市（后台可配，拉不到时回落到内置名单）
+const hotStore = useHotStore()
+
 // 弹层动态样式：键盘弹起时上移 + 压缩最大高度，收起时还原
 const popupStyle = computed(() => {
   const kh = keyboardHeight.value
@@ -161,8 +176,26 @@ const popupStyle = computed(() => {
   }
 })
 
-// 热门城市：从当前 allCities 中筛选出 HOT_CITIES 定义的城市
-const hotCities = computed(() => {
+// 热门城市：优先用运营在后台配置的名单，拉不到再回落到内置的 HOT_CITIES。
+//
+// 为什么不直接用 allCities 过滤 HOT_CITIES：
+//   内置名单是写死的 13 个城市，运营想换一批只能改代码发版；
+//   而且过滤口径依赖 allCities —— 当前筛选下没有活动的城市会被整条滤掉，
+//   运营配好的热门城市可能一个都显示不出来。
+// 运营配置的名单不按 allCities 过滤：热门入口的意义就是「跳到那边看看」，
+// 哪怕当前筛选下那个城市没有活动，也应该能被看到和点到。
+const hotCities = computed<CityOption[]>(() => {
+  const configured = hotStore.cityOptions
+  if (configured.length) {
+    return configured.map((c) => ({
+      id: c.id,
+      displayName: c.displayName,
+      region: "",
+      // 后台配置的热门城市只给了中文名与 region.id；
+      // code 用中文名兜底（上层会走后端归一化换出真实写法）。
+      code: c.displayName,
+    }))
+  }
   const all = allCities.value
   if (!all.length) return []
   return HOT_CITIES.map((zhName) => all.find((c) => c.displayName === zhName)).filter(Boolean) as CityOption[]
@@ -179,7 +212,8 @@ function enListToOptions(enList: string[]): CityOption[] {
     const zh = formatCity(en) || en
     // 从 ALL_CITIES_META 里找省份标签，找不到留空
     const meta = ALL_CITIES_META.find((m) => m.name === zh)
-    return { id: en, displayName: zh, region: meta?.region ?? "" }
+    // code 直接用 /events/cities 返回的原值：那就是库内真实写法，最准
+    return { id: en, displayName: zh, region: meta?.region ?? "", code: en }
   })
 }
 
@@ -190,6 +224,8 @@ function regionListToOptions(list: RegionItem[]): CityOption[] {
     // 优先从本地映射表取中文名，兜底用 regions.name（英文）
     displayName: formatCity(r.name) || r.name,
     region: r.iso || "",
+    // code 用 regions.name（英文），上层再走后端归一化换出全部等价写法
+    code: r.name,
   }))
 }
 
@@ -214,6 +250,9 @@ watch(() => props.visible, async (v) => {
   // 每次打开都清掉上一轮的定位提示
   locateMsg.value = "";
   locateError.value = false;
+
+  // 后台配置的热门城市：拉取不阻塞弹层显示（失败时用内置名单兜底）
+  hotStore.load();
 
   // 优先使用父组件传入的动态城市列表（/events/cities 接口结果）
   if (props.availableCities && props.availableCities.length > 0) {
@@ -357,9 +396,10 @@ function close() {
 }
 
 function pick(city: CityOption) {
-  // emit { name, id } 对象，上层可按需取中文名或 region.id（UUID）
-  // 兼容历史：name 保留中文显示名，id 为 regions 表主键（订阅流程需要）
-  emit("select", { name: city.displayName, id: city.id })
+  // emit { name, id, code } 对象，上层可按需取中文名 / region.id（UUID）/ 英文写法
+  // 兼容历史：name 保留中文显示名，id 为 regions 表主键（订阅流程需要），
+  // code 为英文写法（筛活动用）
+  emit("select", { name: city.displayName, id: city.id, code: city.code })
   emit("update:visible", false)
 }
 
@@ -369,11 +409,16 @@ async function reLocate() {
   locateMsg.value = ''
   locateError.value = false
 
-  // 超时兜底：20s 内未完成则显示提示。
-  // 取 20s 而非 IP 时代的 3s：坐标链路 = 系统授权框（用户可能思考十几秒）
-  // + 系统定位 1~3s + 服务端逆地理编码，3s 会在**绝大多数真机**上误判为失败，
+  // 超时兜底：30s 内未完成则显示提示。
+  //
+  // 这个定时器的作用是**防挂死**，不是"给用户慢慢等"——
+  // 正常路径本来就该很快：
+  //   坐标定位 8s → 首选 IP 10s → 兜底 IP 10s，最坏约 28s。
+  // 兜底设在最坏路径之上留 2s 余量；到点即代表链路异常（非预期挂死），
+  // 立刻提示手动选择，不让用户干等。
+  //
+  // 为什么不是 3s（IP 时代的值）：3s 会在**绝大多数真机**上误判为失败，
   // 进而在下面 `if (!locating.value) return` 处把已经成功的结果丢掉。
-  // 这个按钮是用户主动点的，等待期间有「定位中...」文案，长一点可以接受。
   const fallback = () => {
     locateSafeTimer = null
     locating.value = false
@@ -381,30 +426,35 @@ async function reLocate() {
     locateError.value = true
   }
   if (locateSafeTimer) clearTimeout(locateSafeTimer)
-  locateSafeTimer = setTimeout(fallback, 20000)
+  locateSafeTimer = setTimeout(fallback, 30000)
 
   try {
     // force: true —— 用户点「重新定位」的前提就是当前城市不对（出差 / 换网络 / 用了代理），
     // 若命中 24h 缓存按下去毫无变化，这个按钮就等于坏了。
     // precise: true —— 只有用户主动点这个按钮时才申请精确位置权限，
     // 这是「权限必须在用户主动触发时申请」这条应用市场要求的落点。
-    const city = await locateCity({ force: true, precise: true })
+    //
+    // 返回的是结构化结果：name（中文显示名）+ codes（库内全部等价写法）。
+    // codes 必须一并带给上层 —— 只给一个写法会漏掉同城另一批场次
+    // （香港 = "Hong Kong" + "Xianggang"）。
+    const located = await locateCity({ force: true, precise: true })
     clearLocateSafeTimer()
     // 接口返回与兜底定时器谁先到不确定，fallback 已把 locating 置 false 即代表它赢了
     if (!locating.value) return
-    console.log("[CityPicker] 定位结果:", city)
     // 成功路径必须复位：pick() 只 emit 关闭，本身不碰 locating。
     // 一旦上层没有响应 visible 变化把弹窗关掉，弹窗就会留在原地、
     // 顶着「定位中...」的文案——定位其实早已成功，界面却永远转圈。
     // 失败路径经由 fallback() 复位，成功路径必须自己来，两条路径才对称。
     locating.value = false
-    const cityOption = allCities.value.find((c) => c.displayName === city)
+    // 在可选列表里找这个城市：找得到就直接选中，找不到如实告知。
+    // 匹配用中文显示名（列表里展示的就是它）。
+    const cityOption = allCities.value.find((c) => c.displayName === located.name)
     if (cityOption) {
       // 定位成功后自动选择该城市
       pick(cityOption)
     } else {
       // 定位出的城市不在可选列表里（如海外城市），如实告知而非静默失败
-      locateMsg.value = `已定位到${city}`
+      locateMsg.value = `已定位到${located.name}`
       locateError.value = false
     }
   } catch (e) {

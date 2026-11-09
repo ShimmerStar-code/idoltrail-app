@@ -160,7 +160,7 @@ export function requestAppleIAP(payload: AppleIAPPayload): Promise<NativePayResu
 
 /** 微信 App 支付参数（Android） */
 export interface WxPayPayload {
-  /** 后端 /api/v1/pay/wx/app 下单返回的调起参数 */
+  /** 后端 POST /api/v1/donations（channel=wx_app）下单返回的调起参数 */
   orderInfo: string
 }
 

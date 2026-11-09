@@ -3,7 +3,7 @@
     "appid" : "__UNI__F1F9279",
     "description" : "演唱会、音乐节、见面会等偶像活动信息订阅平台~",
     "versionName" : "0.1.2",
-    "versionCode" : "101",
+    "versionCode" : "102",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
@@ -60,7 +60,18 @@
                     "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
-                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>"
+                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+                    /* 写入系统日历（订阅页「我的日程 → 加入日历」）。
+                       运行时权限，只在用户主动点「加入日历」时才需要，
+                       写不进时会提示去系统设置授权，见 src/utils/calendar.ts。 */
+                    "<uses-permission android:name=\"android.permission.WRITE_CALENDAR\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_CALENDAR\"/>",
+                    /* 安装升级包（plus.runtime.install）所需。
+                       Android 8.0+ 属于「安装未知来源应用」：用户在系统设置里
+                       给本应用授权后才能装。属于**功能性**权限 ——
+                       只有用户主动点升级、在升级页确认安装时才会用到，
+                       不在启动时申请、不弹权限框（见 src/utils/appUpdate.ts）。 */
+                    "<uses-permission android:name=\"android.permission.REQUEST_INSTALL_PACKAGES\"/>"
                 ],
                 "permissionExternalStorage" : {
                     /* request:none 与下方 permissions 列表一致：本 App 不读写公共存储，
@@ -207,46 +218,50 @@
                取 "common" 时按密度配的这组图**整个不生效**，
                实际显示的是「通用启动界面」（自动用 app 图标 + 应用名生成）。
 
-               ⚠️ 用的是**普通 PNG**，不是 .9.png，也不是自己合成的图。
-               启动图是原生层资源（Activity 的 windowBackground），其 Bitmap 被系统
-               按 fill 铺满窗口 —— 图片比例 ≠ 屏幕比例就必然拉伸变形。
-               实测（Redmi K40 / 1080x2460 / Android 14 / MIUI）：旧图 1080x1882 被
+               ✅ 启动图用 **.9.png（九宫格）**，官方明确支持
+               （https://uniapp.dcloud.net.cn/tutorial/app-splashscreen.html
+                 「Android平台同时支持使用.9.png图片…可以指定特定的区域进行拉伸而不失真」）。
+               为什么必须用九宫格：启动图是原生层资源（Activity 的 windowBackground），
+               Bitmap 会被系统按 fill 铺满窗口 —— 普通 PNG 图比例 ≠ 屏幕比例就必然拉伸变形。
+               实测（Redmi K40 / 1080x2460 / Android 14 / MIUI）：旧整屏图 1080x1882 被
                纵向拉伸 2460/1882 = 1.307 倍铺满全屏，logo 与文字明显拉长
                （标志区纵横比形变 23.5%）。
 
-               这里的解法不是「把图改成九宫格」，而是**直接用设计交付的成品整屏图**，
-               并让**每个密度桶选该桶最常见的屏幕比例**的那张，残余畸变压到 5% 以内：
-                 · xxhdpi → 1080x2400（20:9）：2340/2400/2460/2520/2K 各差 ≤5%
-                 · xhdpi  → 720x1440（18:9）：1280 与 1600 各差 11%
-                 · hdpi   → 480x800（16:9）：854 差 6.7%
-               1080x2400 在 Redmi K40 上相对畸变 1.0250（纵向仅 2.5%，
-               标志区纵横比形变 2.4%），肉眼基本看不出。
+               九宫格的做法（与设计交付包 res/ 的原生方案等价）：
+                 · 固定区 = 品牌锁定图 splash_brand.png（原件，200dp，不缩放不重采样）
+                 · 可拉伸区 = 四周渐变底（品牌区之外），多余空间由可拉伸区按比例瓜分
+                   ⇒ 品牌在**任何**机型上都 1:1 不变形、且始终居中
+               渐变底按 AOSP GradientDrawable 语义从 res/drawable/splash_background.xml 渲染：
+                 angle=315 → Orientation.TL_BR（对角线），centerColor 停靠点 = centerY=0.30
+               底色只取交付视觉里真实出现的 #FFE39A → #FCA8B3：
+               设计师交付图（preview/android_layerlist_1080x1920.png 与 fullscreen/ 天空区）
+               的底色深紫占比 0.0%，#9C5B87 只出现在底部插画里；
+               若按 XML 字面再叠上 endColor=#9C5B87，右下角会铺满深紫（实测「暗于140」
+               的像素占 17.3%），与交付视觉不符。
 
-               ✅ 三张图都是设计交付包 fullscreen/ 目录里的**原件**，
-               md5 与交付源一致，**零像素改动**（不抠图、不重绘、不合成）：
-                 app-icons/splash-fullscreen/splash_1080x2400.png  md5 d26f4f4fe168071cc0db7dd72d506a72
-                 app-icons/splash-fullscreen/splash_720x1440.png  md5 f937aba82c8de3823db284b08ae9996d
-                 app-icons/splash-fullscreen/splash_480x800.png   md5 72ac986ed852eef0c41fcff2c910f68a
-               ⚠️ **不要**再改成 .9.png 或自行合成：.9.png 会把设计稿整幅插画拆成
-               「固定区 + 拉伸区」，底部插画被拉长、标志区位置漂移，效果反而更差
-               （上一版就是这么翻车的）。设计交付包 README 里「不要把整屏 PNG
-               直接设为 windowBackground」的警告针对的是**自绘/合成**图；
-               这里图与屏比例本就接近，残余畸变 ≤5% 可接受。
+               ⚠️ 文件名必须是 **splash.9.png** 且放在按密度分的子目录里：
+               aapt2 只对文件名以 .9.png 结尾的资源编译 nine-patch chunk（资源名仍是
+               drawable/splash），改名成 splash.png 会丢掉 chunk → 露出 1px 黑边并被拉伸。
+               这与官方离线打包约定一致（res/drawable-xxxhdpi/splash.9.png）。
+
+               ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」），
+               本地运行与 npm run build:app 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
+               真机验收点：①无 1px 黑边 ②品牌不变形 ③品牌居中 ④底色与设计稿一致。
 
                ⚠️ iOS 侧保持 "common"：自定义启动图在 iOS 上从 2020-06-30 起
                无法提交 App Store（官方原文），iOS 只能用通用启动界面或自定义 storyboard。 */
             "splashscreen" : {
                 "androidStyle" : "default",
                 "android" : {
-                    "hdpi" : "app-icons/splash-fullscreen/splash_480x800.png",
-                    "xhdpi" : "app-icons/splash-fullscreen/splash_720x1440.png",
-                    "xxhdpi" : "app-icons/splash-fullscreen/splash_1080x2400.png"
+                    "hdpi" : "app-icons/splash-9patch/hdpi/splash.9.png",
+                    "xhdpi" : "app-icons/splash-9patch/xhdpi/splash.9.png",
+                    "xxhdpi" : "app-icons/splash-9patch/xxhdpi/splash.9.png"
                 },
                 "iosStyle" : "common",
                 "ios" : {},
                 /* 启动时系统导航栏背景色：配了启动图后导航栏区域容易闪白，
-                   官方说明该字段用于解决此问题。取源图底部主色 #9C5A8B。 */
-                "androidNavigationBarColor" : "#9C5B87"
+                   官方说明该字段用于解决此问题。取启动图底部主色 #FCA8B3。 */
+                "androidNavigationBarColor" : "#FCA8B3"
             }
         },
         /* uni-push 2.0 厂商通道：需要 DCloud 后台为各厂商开通后填入，

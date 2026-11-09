@@ -176,9 +176,11 @@ VITE_PUSH_ENABLED=true
 |------|------|
 | `VITE_DONATE_ENABLED` | 捐赠入口总开关，关闭时入口完全隐藏 |
 | `VITE_DONATE_IOS_ENABLED` | iOS 是否展示支付按钮（App Store 要求数字内容走 IAP） |
-| `VITE_DONATE_NATIVE_READY` | Android 原生支付（微信 App Pay / 支付宝）是否可用 |
+| `VITE_DONATE_NATIVE_READY` | Android 微信 App 支付是否就绪（支付宝尚未开放服务端下单） |
 
-**Android 侧目前保持 `VITE_DONATE_NATIVE_READY=false`**：客户端支付已实现（`src/utils/nativePay.ts` 的 `requestWxAppPay` / `requestAlipay`，走 `uni.requestPayment`），缺的是后端 `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，此时置 true 只会让用户点了必然失败。后端就绪后再开。
+**Android 侧已接微信 App 支付**：客户端通过 `src/utils/nativePay.ts` 的 `requestWxAppPay` 调起微信，服务端通过 `POST /donations`（`channel=wx_app`）下单，并提供支付回调入账与订单查询。支付宝仅有 `requestAlipay` 客户端封装，服务端尚未开放 `alipay_app` 下单。
+
+**当前仍保持 `VITE_DONATE_NATIVE_READY=false`**：`manifest.json` 尚未声明 `Payment` 模块，且微信开放平台移动应用 AppID、包名与正式签名登记、商户号绑定及支付证书配置仍需完成并通过真机验收。配置就绪前置 `true` 会导致支付失败。
 
 ### 5. 隐私合规
 

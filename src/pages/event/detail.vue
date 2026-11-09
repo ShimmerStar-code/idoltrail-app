@@ -11,6 +11,15 @@
           <view class="nav-actions">
             <!-- <text class="nav-icon">👁</text> -->
             <!-- <text class="nav-icon">🔖</text> -->
+            <!-- 分享入口：App 端没有微信那种「右上角胶囊 → 转发」的系统入口，
+                 必须由业务代码主动调起分享面板（见 onShare）。 -->
+            <view
+              class="nav-share-btn"
+              @click.stop="onShare"
+              hover-class="nav-subscribe-btn--hover"
+            >
+              <uni-icons type="redo" size="20" color="#333" />
+            </view>
             <view
               class="nav-subscribe-btn"
               @click.stop="onToggleSubscribe"
@@ -208,7 +217,13 @@
               >
                 <text
                   class="session-tab-text"
-                  :style="i === activeSessionIdx ? { color: theme.ink } : {}"
+                  :style="
+                    isSessionExpired(s)
+                      ? { color: '#e64340' }
+                      : i === activeSessionIdx
+                        ? { color: theme.ink }
+                        : {}
+                  "
                   >{{ sessionLabel(s, i, d.sessions.length) }}</text
                 >
               </view>
@@ -221,7 +236,10 @@
               :style="{ background: withAlpha(theme.ink, 0.08) }"
             >
               <view class="session-badge">
-                <text class="session-badge-text" :style="{ color: theme.ink }">{{
+                <text
+                  class="session-badge-text"
+                  :style="{ color: isSessionExpired(currentSession) ? '#e64340' : theme.ink }"
+                  >{{
                   sessionLabel(
                     currentSession,
                     activeSessionIdx,
@@ -257,13 +275,16 @@
                 }}</text>
               </view>
 
-              <!-- 时间列表 -->
+              <!-- 时间列表：点击打开场次日历（看今天在哪、这场活动哪天演） -->
               <view
                 v-if="currentSession.times && currentSession.times.length > 0"
                 :class="[
                   'detail-row',
                   currentSession.times.length > 1 && 'detail-row--times',
                 ]"
+                :hover-class="sessionDates.length ? 'detail-row-hover' : ''"
+                :hover-stay-time="120"
+                @tap="openCalendar"
               >
                 <view class="detail-icon-wrap">
                   <image
@@ -283,6 +304,7 @@
                     >{{ formatSessionTime(t) }}</text
                   >
                 </view>
+                <text v-if="sessionDates.length" class="dtxt-arrow">›</text>
               </view>
 
               <!-- 场馆：绑定了 place_id 才可点，跳场馆详情页 -->
@@ -402,12 +424,10 @@
         <view class="section">
           <view class="notice-title-wrap">
             <view class="notice-title-bar"></view>
-            <text class="section-title notice-section-title">
-              {{ noticeIsGeneric ? "观演须知（通用提示）" : "观演须知" }}
-            </text>
+            <text class="section-title notice-section-title">观演须知</text>
           </view>
           <view v-if="noticeIsGeneric" class="notice-source-tip">
-            本场未提供专属须知，以下为通用入场提示，请以现场公告为准。
+            本场未提供主办方专属须知，以下为行业通行的入场提示，请以现场公告为准。
           </view>
           <view class="notice-box">
             <view v-for="(item, i) in noticeItems" :key="i" class="notice-item">
@@ -419,17 +439,37 @@
             </view>
           </view>
         </view>
+
+        <!--
+          数据免责声明：常驻在详情页底部，不再在启动时弹窗。
+          放在这里是语境最贴合的位置 —— 用户正在看一条可能来自众包上传的情报，
+          顺手就能看到「数据来自网络」与举报渠道。
+        -->
+        <view class="disclaimer-row" @tap="copyReportEmail">
+          <text class="disclaimer-text">{{ DISCLAIMER_SHORT }}</text>
+          <text class="disclaimer-link">侵权举报</text>
+        </view>
       </view>
 
       <view v-else class="empty">{{
         store.loading ? "加载中..." : "活动信息不存在"
       }}</view>
     </view>
+
+    <!-- 场次日历：点场次的日期行弹出 -->
+    <SessionCalendar
+      v-model:visible="calendarVisible"
+      :mark-dates="sessionDates"
+      :current-date="currentSessionDate"
+      :theme-color="theme.ink"
+      @pick="onCalendarPick"
+    />
   </PageLayout>
 </template>
 
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
+import SessionCalendar from "@/components/SessionCalendar/index.vue";
 import { getArtistAvatarSrc } from "@/utils/avatar";
 import { useEventStore } from "@/stores/event";
 import { useSubscribeStore } from "@/stores/subscribe";
@@ -439,16 +479,21 @@ import { syncPushToken } from "@/composables/usePush";
 import { switchTabPage } from "@/utils/pages";
 import { getNavBarMetrics } from "@/utils/system";
 import { openExternalUrl } from "@/utils/openExternal";
+import { shareApp } from "@/utils/share";
+import { track } from "@/utils/analytics";
+import { ANALYTICS_EVENTS } from "@/constants/analytics";
 import { posterThumb } from "@/utils/image";
 import { formatCity } from "@/constants/cities";
 import { formatCityCountry } from "@/constants/countries";
 import { resolveArtistTheme, withAlpha } from "@/constants/artistTheme";
+import { DISCLAIMER_SHORT, REPORT_EMAIL } from "@/constants/disclaimer";
 import type { EventSession } from "@/types/event";
 import {
   EVENT_TYPE_LABEL,
   EVENT_STATUS_OPTIONS,
   STATUS_BADGE_STYLE,
   effectiveEventStatus,
+  todayYMD,
   GENERIC_AUDIENCE_NOTICE,
 } from "@/constants/eventMeta";
 import { onLoad } from "@dcloudio/uni-app";
@@ -462,6 +507,14 @@ const CHIP_LIMIT = 6;
 const expanded = ref(false);
 const statusBarHeight = ref(uni.getWindowInfo?.()?.statusBarHeight ?? 44);
 const navRightPadding = ref(16);
+
+/** 复制侵权举报邮箱（详情页底部免责声明的入口） */
+function copyReportEmail() {
+  uni.setClipboardData({
+    data: REPORT_EMAIL,
+    success: () => uni.showToast({ title: "举报邮箱已复制", icon: "none" }),
+  });
+}
 
 onMounted(() => {
   const metrics = getNavBarMetrics();
@@ -483,6 +536,11 @@ onLoad((options) => {
   // 缓存内的动态字段已各自保证新鲜度：is_liked / likes_count 由
   // store.toggleLike 写回，subscribe_count 由 store.adjustSubscribeCount 就地修正。
   store.fetchDetail(numId);
+  // 埋点：详情页曝光（source 由列表页跳转时带上，缺失则为 unknown）
+  track(ANALYTICS_EVENTS.EVENT_DETAIL_VIEW, {
+    event_id: numId,
+    source: String(options?.source || "unknown"),
+  });
   // 让已结束活动的“已订阅”判断准确（支持对已订阅的过期活动退订；含外部深链进入）
   if (userStore.isLoggedIn) {
     subscribeStore.fetchMySubscribedIds().catch(() => {});
@@ -517,11 +575,60 @@ const SESSIONS_MAX = 30;
 const SESSION_TIMES_MAX = 20;
 const ARTISTS_MAX = 12;
 
-const visibleSessions = computed(() => (d.value?.sessions ?? []).slice(0, SESSIONS_MAX));
+function isSessionExpired(session: EventSession, now: Date = new Date()): boolean {
+  const endDate = [
+    session.event_date,
+    ...(session.times ?? []).map((time) => time.event_date),
+  ]
+    .filter((date): date is string => !!date)
+    .reduce((latest, date) => {
+      const value = date.slice(0, 10);
+      return value > latest ? value : latest;
+    }, "");
+  return session.status === "ENDED" || (!!endDate && endDate < todayYMD(now));
+}
+
+/**
+ * 场次的过期判定用**最晚**一天：一场跨多天的演出（11-08~11-10），
+ * 到 11-09 还没演完，不算过期。后端 session 排序用的是同一个口径。
+ */
+function sessionLastDate(session: EventSession): string {
+  return [
+    session.event_date,
+    ...(session.times ?? []).map((time) => time.event_date),
+  ]
+    .filter((date): date is string => !!date)
+    .reduce((latest, date) => {
+      const value = date.slice(0, 10);
+      return value > latest ? value : latest;
+    }, "");
+}
+
+/** 待定：连一天具体时间都没有 */
+function isSessionPending(session: EventSession): boolean {
+  return !sessionLastDate(session);
+}
+
+/**
+ * 场次档位：0 有效 / 1 待定 / 2 过期。
+ *
+ * 待定**不算过期活动**，排在有效之后、过期之前（与后端 SessionOrderBy 同口径）。
+ */
+function sessionRank(session: EventSession, now: Date = new Date()): number {
+  if (isSessionExpired(session, now)) return 2;
+  if (isSessionPending(session)) return 1;
+  return 0;
+}
+
+const visibleSessions = computed(() => {
+  const now = new Date();
+  return [...(d.value?.sessions ?? [])]
+    .sort((a, b) => sessionRank(a, now) - sessionRank(b, now))
+    .slice(0, SESSIONS_MAX);
+});
 
 const currentSession = computed<EventSession | null>(() => {
-  const list = d.value?.sessions ?? [];
-  return list[activeSessionIdx.value] ?? null;
+  return visibleSessions.value[activeSessionIdx.value] ?? null;
 });
 
 const visibleSessionTimes = computed(() => currentSession.value?.times?.slice(0, SESSION_TIMES_MAX) ?? []);
@@ -530,6 +637,54 @@ const visibleArtists = computed(() => (d.value?.artists ?? []).slice(0, ARTISTS_
 
 function selectSession(idx: number) {
   activeSessionIdx.value = idx;
+}
+
+// ── 场次日历 ────────────────────────────────────────────────────
+const calendarVisible = ref(false);
+
+/** 活动所有场次的演出日期（去重，YYYY-MM-DD）——日历上的「演出日」标记 */
+const sessionDates = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const s of d.value?.sessions ?? []) {
+    if (s.event_date) set.add(String(s.event_date).slice(0, 10));
+    for (const t of s.times ?? []) {
+      if (t.event_date) set.add(String(t.event_date).slice(0, 10));
+    }
+  }
+  return Array.from(set).sort();
+});
+
+/** 当前场次的日期（单日取当天，多日取最早那天）——日历上的定位与高亮 */
+const currentSessionDate = computed<string>(() => {
+  const s = currentSession.value;
+  if (!s) return "";
+  const dates = [
+    s.event_date,
+    ...(s.times ?? []).map((t) => t.event_date),
+  ]
+    .filter((x): x is string => !!x)
+    .map((x) => String(x).slice(0, 10))
+    .sort();
+  return dates[0] ?? "";
+});
+
+function openCalendar() {
+  if (!sessionDates.value.length) return;
+  calendarVisible.value = true;
+}
+
+/** 点了日历上的某个演出日 → 切到那一场 */
+function onCalendarPick({ date }: { date: string }) {
+  const idx = visibleSessions.value.findIndex((s) =>
+    [
+      s.event_date,
+      ...(s.times ?? []).map((t) => t.event_date),
+    ]
+      .filter((x): x is string => !!x)
+      .some((x) => String(x).slice(0, 10) === date),
+  );
+  if (idx >= 0) selectSession(idx);
+  calendarVisible.value = false;
 }
 
 // 换活动（onLoad 里 fetchDetail 拉的是另一个 id）或场次数变化时，
@@ -657,14 +812,21 @@ function openMap(session: EventSession) {
   });
 }
 
-/** 格式化场次时间：不带城市名（城市已在卡片标题显示） */
+/**
+ * 格式化场次时间：不带城市名（城市已在卡片标题显示）。
+ *
+ * 月/日**补零到两位**（2026.11.07 而非 2026.11.7）：巡演动辄十几场，
+ * 单数字月份/日期的文本宽度不一致，竖排对齐时参差不齐，很难看。
+ */
 function formatSessionTime(t: { event_date: string; start_time?: string | null }) {
   const datePart = (t.event_date ?? "").split("T")[0];
   if (!datePart) return "";
   const [y, m, day] = datePart.split("-").map(Number);
   const weekday = WEEKDAYS[new Date(y, m - 1, day).getDay()];
   const time = t.start_time?.slice(0, 5) ?? "";
-  return `${y}.${m}.${day} 周${weekday}${time ? " " + time : ""}`.trim();
+  const mm = String(m).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${y}.${mm}.${dd} 周${weekday}${time ? " " + time : ""}`.trim();
 }
 
 function goBack() {
@@ -675,6 +837,74 @@ function goBack() {
     // 从推送通知直接打开时没有上一页，回到首页 tab
     switchTabPage("/pages/home/index");
   }
+}
+
+// ---- 分享 ----
+/**
+ * 分享落地页。
+ *
+ * 目前官网（www.idoltrail.com）只有首页与协议页，**没有单场活动的 H5 详情页**，
+ * 因此分享出去的链接只能指向官网，活动信息靠文案承载。
+ * 等官网补上 /event/:id 路由后，这里换成对应链接即可（其余逻辑不用动）。
+ */
+const SHARE_LANDING = "https://www.idoltrail.com";
+
+/** 拼分享文案：活动标题 + 阵容 + 开演时间 + 城市 */
+function buildShareText(): string {
+  const ev = d.value;
+  if (!ev) return "";
+  const artists = validArtists.value
+    .map((a) => a.artist_name)
+    .filter(Boolean)
+    .join("、");
+  const sess = currentSession.value;
+  const time = sess?.times?.[0];
+  const datePart = time?.event_date ? String(time.event_date).slice(0, 10) : "";
+  const startTime = time?.start_time ? String(time.start_time).slice(0, 5) : "";
+  return [
+    ev.title,
+    artists ? `演出阵容：${artists}` : "",
+    datePart
+      ? `开演时间：${datePart}${startTime ? " " + startTime : ""}`
+      : "",
+    sess?.city ? `举办城市：${formatCity(sess.city)}` : "",
+    "",
+    "在 idoltrail App 内搜索活动名即可查看详情与购票入口",
+    "官网：www.idoltrail.com",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function onShare() {
+  const ev = d.value;
+  if (!ev) return;
+  const text = buildShareText();
+  uni.showActionSheet({
+    itemList: ["分享给好友", "复制活动信息"],
+    success: (res) => {
+      if (res.tapIndex === 0) {
+        track(ANALYTICS_EVENTS.SHARE_CLICK, { event_id: ev.id, channel: "friend" });
+        shareApp({
+          title: ev.title,
+          summary: text,
+          url: SHARE_LANDING,
+        });
+      } else {
+        track(ANALYTICS_EVENTS.SHARE_CLICK, { event_id: ev.id, channel: "copy" });
+        uni.setClipboardData({
+          data: text,
+          success: () =>
+            uni.showToast({ title: "活动信息已复制", icon: "success" }),
+          fail: () =>
+            uni.showToast({ title: "复制失败，请稍后再试", icon: "none" }),
+        });
+      }
+    },
+    fail: () => {
+      /* 用户取消 */
+    },
+  });
 }
 
 function goToArtist(artistId: string) {
@@ -853,6 +1083,18 @@ const noticeIsGeneric = computed(
 .nav-subscribe-icon {
   width: 90%;
   height: 90%;
+}
+/* 分享按钮：与订阅按钮同规格，只是里面放的是图标而不是图片 */
+.nav-share-btn {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #f8f8f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
 }
 
 /* ── 信息卡片（底色由内联 theme.base 覆盖，见模板）── */
@@ -1475,6 +1717,27 @@ const noticeIsGeneric = computed(
   color: #8a8f99;
   font-size: 24rpx;
   line-height: 1.6;
+}
+/* 底部免责声明：常驻说明，不是弹窗；点击复制举报邮箱 */
+.disclaimer-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 24rpx 30rpx 8rpx;
+  padding: 18rpx 24rpx;
+  border-radius: 16rpx;
+  background: #f6f7f8;
+}
+.disclaimer-text {
+  flex: 1;
+  color: #8a8f99;
+  font-size: 23rpx;
+  line-height: 1.6;
+}
+.disclaimer-link {
+  flex-shrink: 0;
+  color: rgba(254, 165, 0, 1);
+  font-size: 23rpx;
 }
 .notice-item {
   margin-bottom: 24rpx;

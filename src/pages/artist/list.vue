@@ -1,22 +1,39 @@
 <template>
   <PageLayout>
     <view class="page">
+      <!--
+        顶部导航栏只保留页面标题：本页是 tabBar 根页面，没有上一页可返回。
+        导航栏同时把搜索框下移到状态栏与摄像头挖孔之外。
+      -->
+      <view class="navbar" :style="{ paddingTop: topInset + 'px' }">
+        <view class="navbar-inner">
+          <text class="nav-title">偶像</text>
+        </view>
+      </view>
+
       <!-- 顶部搜索栏 -->
-      <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
+      <view class="header">
         <view
           class="search-bar"
           :class="{ 'search-bar--active': searchActive }"
         >
-          <uni-icons type="search" size="16" color="#999" />
+          <uni-icons type="search" size="18" color="#d99a00" />
+          <!--
+            输入框必须**常驻** DOM：试过用 v-if 在关闭时移除它，
+            但 App 端原生 EditText 的视图不会被立刻回收，
+            残留的原生控件继续吃掉整条搜索框区域的点击 →
+            既没有 focus 事件、也点不到下面的热区，搜索框直接变成死区。
+          -->
           <input
             class="search-input"
             v-model="searchKeyword"
-            placeholder="搜索您喜欢的艺人"
+            placeholder="搜索偶像名字"
             placeholder-class="search-placeholder-cls"
             :focus="searchActive"
-            @focus="searchActive = true"
-            @input="onSearchInput"
             confirm-type="search"
+            @focus="onSearchFocus"
+            @input="onSearchInput"
+            @confirm="onSearchConfirm"
           />
           <text v-if="searchActive" class="search-close" @click="closeSearch">✕</text>
         </view>
@@ -26,7 +43,6 @@
         scroll-y
         :show-scrollbar="false"
         class="scroll-body"
-        :style="{ paddingBottom: tabBarHeight + 'px' }"
       >
         <!-- 骨架屏：首屏加载中 -->
         <template v-if="store.groupedLoading">
@@ -96,23 +112,51 @@
 
       <!-- 搜索遮盖层：暗色全屏背景（header 的 z-index:100 会浮在它上方） -->
       <view
-        v-if="searchKeyword"
+        v-if="searchPanelOpen"
         class="search-backdrop"
         @click="closeSearch"
         @touchmove.stop.prevent
       />
-      <!-- 搜索结果：紧贴搜索框底部，可上下滚动 -->
-      <scroll-view
-        v-if="searchKeyword"
-        scroll-y
-        class="search-mask"
-        :style="{ top: headerBottom + 'px' }"
-        @touchmove.stop
-      >
-        <SearchOverlay :keyword="searchKeyword" @navigate="closeSearch" />
-      </scroll-view>
+      <!--
+        搜索结果容器。
 
-      <TabBar :current="1" />
+        结构要点（三处都是踩出来的）：
+        1. 暗色遮罩 backdrop 绑了 closeSearch，但它 z-index 比面板低 →
+           面板必须**按内容高度自适应**，不能铺满，遮罩才有裸露的部分可点；
+        2. 原生 scroll-view 会吃掉触摸，事件不冒泡到外层 view →
+           「点空白关闭」只能交给没有子元素的 backdrop；
+        3. 面板内容区再包一层 @click.stop，让「点搜索结果」仍算选中。
+
+        之前 .search-mask 是 fixed + bottom:0（铺满整屏），
+        于是每一块空白都落在 scroll-view 上 → 点了没反应，只能点 ✕。
+      -->
+      <view
+        v-if="searchPanelOpen"
+        class="search-layer"
+        :style="{ top: headerBottom + 'px' }"
+      >
+        <scroll-view scroll-y class="search-mask" @touchmove.stop>
+          <!-- 内容区阻断冒泡：点搜索结果是「选中」，不该被当成「点空白关闭」 -->
+          <view class="search-mask-content" @click.stop>
+            <SearchOverlay
+              v-if="hasSearchKeyword"
+              :keyword="searchQuery"
+              artist-only
+              @navigate="onSearchResultTap"
+              @subscribe="toggleSubscribe"
+            />
+            <SearchSuggest
+              v-else
+              :history="searchHistory"
+              :hot-words="[]"
+              :hot-artists="hotArtists"
+              @pick-history="submitSearch"
+              @pick-hot="submitSearch"
+              @clear-history="onClearHistory"
+            />
+          </view>
+        </scroll-view>
+      </view>
     </view>
   </PageLayout>
 </template>
@@ -120,7 +164,7 @@
 <script setup lang="ts">
 import PageLayout from "@/components/PageLayout/index.vue";
 import SearchOverlay from "@/components/SearchOverlay/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
+import SearchSuggest from "@/components/SearchSuggest/index.vue";
 import { getArtistAvatarSrc } from "@/utils/avatar";
 import { useArtistStore } from "@/stores/artist";
 import { artistGroupLabel, artistGroupOrder } from "@/constants/artistCountries";
@@ -129,16 +173,31 @@ import { useSearchStore } from "@/stores/search";
 import { useSubscribeStore } from "@/stores/subscribe";
 import { useUserStore } from "@/stores/user";
 import { useNotificationStore } from "@/stores/notification";
+import { useHotStore } from "@/stores/hot";
 import { syncPushToken } from "@/composables/usePush";
-import { getStatusBarHeight } from "@/utils/system";
+import { getTopSafeAreaHeight } from "@/utils/system";
+import { HOT_ARTIST_FALLBACK } from "@/constants/hotArtists";
+import {
+  getSearchHistory,
+  addSearchHistory,
+  clearSearchHistory,
+  type SearchHistoryItem,
+} from "@/utils/searchHistory";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onShow, onHide, onUnload } from "@dcloudio/uni-app";
 const store = useArtistStore();
 const userStore = useUserStore();
 const subscribeStore = useSubscribeStore();
 const searchStore = useSearchStore();
-const statusBarHeight = ref(20);
-const tabBarHeight = ref(80);
+const hotStore = useHotStore();
+/**
+ * 顶部避让高度（px）：状态栏与摄像头挖孔取较大者。
+ *
+ * 本页顶部是自绘导航栏，导航栏内容必须整体落在
+ * 摄像头挖孔之下。只按 statusBarHeight 顶开的话，摄像头正好压住
+ * 导航栏第一行的内容（Redmi K40 实测：状态栏 36px，挖孔 y=0..36px）。
+ */
+const topInset = ref(32);
 
 // 加载失败的头像 id 集合，失败后降级为 type/gender 默认头像
 const failedAvatarIds = reactive(new Set<string>());
@@ -151,25 +210,80 @@ function onAvatarError(item: { id: string }) {
 }
 const searchActive = ref(false);
 const searchKeyword = ref("");
+const searchQuery = computed(() => searchKeyword.value.trim());
+const hasSearchKeyword = computed(() => !!searchQuery.value);
+const searchPanelOpen = computed(() => searchActive.value || hasSearchKeyword.value);
+const searchHistory = ref<SearchHistoryItem[]>([]);
+const hotArtists = computed(() =>
+  hotStore.artistNames.length ? hotStore.artistNames : HOT_ARTIST_FALLBACK,
+);
 const headerBottom = ref(0);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let headerMeasureTimer: ReturnType<typeof setTimeout> | null = null;
 
-function onSearchInput() {
-  if (searchTimer) clearTimeout(searchTimer);
-  const kw = searchKeyword.value.trim();
-  if (!kw) { searchStore.clear(); return; }
-  searchTimer = setTimeout(() => {
-    searchTimer = null;
-    searchStore.searchAll(kw);
-  }, 500);
+function loadSearchHistory() {
+  searchHistory.value = getSearchHistory();
 }
 
-function clearListTimers() {
+function clearSearchTimer() {
   if (searchTimer) {
     clearTimeout(searchTimer);
     searchTimer = null;
   }
+}
+
+function runArtistSearch(keyword: string) {
+  void searchStore.searchArtists(keyword).catch((error) => {
+    // 请求层已负责错误提示，这里只避免未处理的 Promise rejection。
+    console.warn("[artist search] failed:", error);
+  });
+}
+
+function onSearchInput() {
+  clearSearchTimer();
+  const kw = searchQuery.value;
+  if (!kw) {
+    searchStore.clear();
+    return;
+  }
+  searchTimer = setTimeout(() => {
+    searchTimer = null;
+    runArtistSearch(kw);
+  }, 500);
+}
+
+/** 回车、历史与热门偶像共用一条立即搜索路径，并记录有效搜索词。 */
+function submitSearch(keyword: string) {
+  const kw = keyword.trim();
+  if (!kw) return;
+  clearSearchTimer();
+  searchKeyword.value = kw;
+  searchActive.value = true;
+  addSearchHistory(kw);
+  loadSearchHistory();
+  runArtistSearch(kw);
+  uni.hideKeyboard();
+}
+
+function onSearchConfirm() {
+  submitSearch(searchKeyword.value);
+}
+
+function onSearchResultTap() {
+  if (searchQuery.value) {
+    addSearchHistory(searchQuery.value);
+    loadSearchHistory();
+  }
+  closeSearch();
+}
+
+function onClearHistory() {
+  clearSearchHistory();
+  loadSearchHistory();
+}
+
+function clearListTimers() {
+  clearSearchTimer();
   if (headerMeasureTimer) {
     clearTimeout(headerMeasureTimer);
     headerMeasureTimer = null;
@@ -177,9 +291,20 @@ function clearListTimers() {
 }
 
 function closeSearch() {
+  clearSearchTimer();
   searchActive.value = false;
   searchKeyword.value = "";
   searchStore.clear();
+  // 收键盘：App 端点搜索框以外的区域不会自动失焦，输入法会一直挂在屏幕上，
+  // 搜索面板却已经消失，看起来像「键盘卡住了」。
+  uni.hideKeyboard();
+}
+
+/** 输入框获得焦点 → 展示历史与热门偶像，新用户也有可点击的入口。 */
+function onSearchFocus() {
+  loadSearchHistory();
+  void hotStore.load();
+  searchActive.value = true;
 }
 
 // 搜索激活时测量搜索框真实底部位置，与 home/index.vue 保持一致
@@ -201,19 +326,23 @@ watch(searchActive, (val) => {
 });
 
 onMounted(() => {
-  statusBarHeight.value = getStatusBarHeight();
+  topInset.value = getTopSafeAreaHeight();
+  loadSearchHistory();
+  void hotStore.load();
 
   // 首次挂载：强制拉取已知国家（force=true），显示骨架屏等待首屏数据
   const tasks: Promise<unknown>[] = [store.fetchGrouped(9, true)];
   if (userStore.isLoggedIn) {
     tasks.push(subscribeStore.fetchMySubscribedIds());
   }
-  Promise.all(tasks);
+  void Promise.all(tasks);
 });
 
 // 每次回到 tab：新鲜期内静默跳过，不触发骨架屏
 onShow(() => {
   store.fetchGrouped();
+  // 登录后或从其它页面返回时，及时反显全部已有订阅。
+  if (userStore.isLoggedIn) void subscribeStore.fetchMySubscribedIds();
 });
 
 // tab 切走 / 页面卸载：停掉搜索防抖与测量定时器，避免在后台继续发请求
@@ -319,6 +448,7 @@ function toggleSubscribe(id: string) {
 function toDetail(id: string) {
   uni.navigateTo({ url: `/pages/artist/detail?id=${id}` });
 }
+
 /**
  * "查看所有"下钻到 by-country。
  *
@@ -339,25 +469,62 @@ function viewAll(codes: string[]) {
   min-height: 100vh;
 }
 
+/* ── 顶部导航栏 ── */
+.navbar {
+  position: relative;
+  z-index: 100;
+  background: #fff;
+}
+.navbar-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 88rpx;
+  padding: 0 30rpx;
+}
+/* 标题绝对居中 */
+.nav-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
 .header {
   position: relative;
   z-index: 100;
   padding-left: 30rpx;
   padding-right: 30rpx;
+  /* 导航栏与搜索框之间留一档呼吸距 */
+  padding-top: 12rpx;
   padding-bottom: 20rpx;
 }
 .search-bar {
-  background: #fff;
-  border-radius: 30rpx;
-  border: 1rpx solid rgba(236, 236, 236, 1);
-  box-shadow: 0 10rpx 30rpx 0 rgba(0, 0, 0, 0.05);
+  position: relative;
+  /* 可见度：白底 + #ececec 细边框在屏幕上几乎看不见（用户反馈
+     「搜索框太低调，都看不见」）。浅灰底也只是亮度差 2%，依旧偏淡。
+     改用品牌橙淡底 + 橙色描边 —— 色相差比亮度差更容易被一眼看到，
+     也和页面里其它橙色元素（订阅按钮、贡献榜）呼应。 */
+  background: rgba(254, 165, 0, 0.12);
+  border-radius: 44rpx;
+  border: 1rpx solid rgba(254, 165, 0, 0.3);
+  box-shadow: 0 8rpx 24rpx 0 rgba(254, 165, 0, 0.12);
   display: flex;
   align-items: center;
-  gap: 10rpx;
-  padding: 22rpx 30rpx;
+  gap: 12rpx;
+  /* 纵向内边距 16rpx，与首页搜索栏（home/index.vue 的 .search-bar）对齐。
+     原来这里是 22rpx → 输入框整体比首页高 12rpx（≈6px），
+     同一 App 里两个搜索框高度不一致，看上去就是「太高了」。
+     横向保持 30rpx，与本页 .header 的左右内边距一致（内容左右对齐）。 */
+  padding: 16rpx 30rpx;
 }
 .search-bar--active {
+  background: #fff;
   border-color: rgba(254, 165, 0, 1);
+  box-shadow: 0 8rpx 24rpx 0 rgba(254, 165, 0, 0.22);
 }
 .search-input {
   flex: 1;
@@ -366,7 +533,8 @@ function viewAll(codes: string[]) {
   background: transparent;
 }
 .search-placeholder-cls {
-  color: rgba(153, 153, 153, 1);
+  /* #999 太淡，看着像没内容；加深到 #666（对比度 ≈5.7:1） */
+  color: rgba(102, 102, 102, 1);
 }
 .search-close {
   font-size: 30rpx;
@@ -385,12 +553,16 @@ function viewAll(codes: string[]) {
   z-index: 98;
 }
 /* 搜索结果滚动容器 */
-.search-mask {
+.search-layer {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
   z-index: 99;
+}
+/* 面板按内容高度自适应（不能铺满）：铺满就会把暗色遮罩全盖住，
+   遮罩上的 closeSearch 再也点不到（原生 scroll-view 还会吃掉触摸）。 */
+.search-mask {
+  max-height: 70vh;
   padding: 20rpx 30rpx 30rpx;
   box-sizing: border-box;
 }

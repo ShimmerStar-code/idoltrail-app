@@ -1,11 +1,5 @@
 name: Release
 
-# 打 tag 产出可交付的 App 资源包。
-#
-# ⚠️ 与 admin-web 不同：App **不部署到服务器**，也不在这里产出 APK/IPA。
-#    App 的安装包由 DCloud 云打包产出（需要 DCloud 账号与证书，CI 里拿不到），
-#    本流水线只负责：门禁校验 → 构建资源包 → 打包成 artifact，
-#    供人工下载后导入 HBuilderX 云打包。流程见 DEPLOY.md。
 on:
   push:
     tags:
@@ -13,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '手动触发时的版本号（留空则用当前 ref）'
-        required: false
+        description: '试运行版本号（如 v0.1.3），只产出 APK，不同步后台'
+        required: true
         type: string
 
 permissions:
@@ -25,26 +19,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 门禁：复用 CI 的同一套校验，通过后才产出交付包。
   verify:
     name: 测试门禁
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
-    secrets: inherit
 
-  package:
-    name: 打包 App 资源
+  publish:
+    name: HBuilder 云打包 / 发布 Android
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    container: ubuntu:20.04
+    environment: production
+    permissions:
+      contents: write
+    timeout-minutes: 60
     env:
-      RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+      APP_API_BASE_URL: https://api.idoltrail.com/api/v1
+      HBUILDERX_VERSION: 5.34.2026102909
+      EXPECTED_APK_CERT_SHA256: 21:3D:55:6F:54:FF:7F:D3:05:0B:95:1D:AF:97:8D:22:8A:AE:65:27:55:98:92:AF:B7:5A:D9:BE:D7:A0:76:99
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 安装系统工具
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates tar gzip unzip aapt apksigner
 
       - name: 安装 Node
         uses: actions/setup-node@v4
@@ -55,46 +59,145 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 环境文件校验
-        run: npm run check:env
+      - name: 从 tag 写入 App 版本
+        id: version
+        run: node scripts/ci/set-release-version.mjs "$RELEASE_TAG"
 
-      - name: 构建 App 资源
-        run: npm run build:app
-
-      # 打成 zip，HBuilderX「导入」时选这个包即可（不导入 dist/build/app 目录，
-      # 目录导入在 HBuilderX 里对 .gitignore 过的产物目录容易出问题）。
-      - name: 打包资源
+      - name: 安装 HBuilderX CLI
         run: |
           set -eu
-          cd dist/build
-          zip -r "idoltrail-app-${RELEASE_VERSION}.zip" app
-          cd -
-          cp "dist/build/idoltrail-app-${RELEASE_VERSION}.zip" .
-          ls -l "idoltrail-app-${RELEASE_VERSION}.zip"
+          archive="$RUNNER_TEMP/hbuilderx.tar.gz"
+          install_dir="$RUNNER_TEMP/hbuilderx"
+          curl --fail --location --retry 3 \
+            "https://download1.dcloud.net.cn/download/HBuilderX.${HBUILDERX_VERSION}.linux_x64.full.tar.gz" \
+            --output "$archive"
+          mkdir -p "$install_dir"
+          tar -xzf "$archive" -C "$install_dir" --strip-components=1
+          "$install_dir/cli" ver
 
-      - name: 生成版本信息
+      - name: 准备 Android 签名证书
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          set -eu
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/idoltrail.jks"
+          test -s "$RUNNER_TEMP/idoltrail.jks"
+          echo "APK_KEYSTORE=$RUNNER_TEMP/idoltrail.jks" >> "$GITHUB_ENV"
+
+      - name: 登录 DCloud 并导入项目
+        env:
+          DCLOUD_USERNAME: ${{ secrets.DCLOUD_USERNAME }}
+          DCLOUD_PASSWORD: ${{ secrets.DCLOUD_PASSWORD }}
+        run: |
+          set -eu
+          cli="$RUNNER_TEMP/hbuilderx/cli"
+          "$cli" open
+          "$cli" user login --username "$DCLOUD_USERNAME" --password "$DCLOUD_PASSWORD"
+          "$cli" project open --path "$GITHUB_WORKSPACE"
+
+      - name: HBuilder CLI 云打包 APK
+        env:
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_STORE_PASSWORD }}
+        run: |
+          set -eu
+          log="$RUNNER_TEMP/hbuilder-pack.log"
+          "$RUNNER_TEMP/hbuilderx/cli" pack \
+            --project "$GITHUB_WORKSPACE" \
+            --platform android \
+            --safemode false \
+            --android.packagename com.idoltrail.app \
+            --android.androidpacktype 0 \
+            --android.certalias "$ANDROID_KEYSTORE_ALIAS" \
+            --android.certfile "$APK_KEYSTORE" \
+            --android.certpassword "$ANDROID_KEYSTORE_KEY_PASSWORD" \
+            --android.storepassword "$ANDROID_KEYSTORE_STORE_PASSWORD" | tee "$log"
+
+      - name: 读取 DCloud 临时下载地址
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const log = fs.readFileSync(process.env.RUNNER_TEMP + '/hbuilder-pack.log', 'utf8')
+          const urls = log.match(/https:\/\/service\.dcloud\.net\.cn\/build\/download\/[A-Za-z0-9-]+/g) || []
+          if (!urls.length) throw new Error('云打包日志中没有 APK 下载地址')
+          fs.appendFileSync(process.env.GITHUB_ENV, `DCLOUD_APK_URL=${urls.at(-1)}\n`)
+          NODE
+
+      - name: 下载并校验 APK
+        env:
+          APK_PATH: ${{ runner.temp }}/idoltrail-app.apk
+        run: |
+          set -eu
+          curl --fail --location --retry 3 "$DCLOUD_APK_URL" --output "$APK_PATH"
+          test -s "$APK_PATH"
+          badging=$(aapt dump badging "$APK_PATH")
+          echo "$badging" | grep -q "package: name='com.idoltrail.app'"
+          echo "$badging" | grep -q "versionCode='$RELEASE_VERSION_CODE'"
+          echo "$badging" | grep -q "versionName='$RELEASE_VERSION'"
+          certs=$(apksigner verify --print-certs "$APK_PATH")
+          actual=$(echo "$certs" | awk -F': ' '/SHA-256 digest/ { print $2; exit }' | tr -d ':' | tr 'A-F' 'a-f')
+          expected=$(echo "$EXPECTED_APK_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')
+          test -n "$actual"
+          test "$actual" = "$expected"
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+
+      - name: 上传 APK 到 OSS
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_URL: ${{ secrets.OSS_PUBLIC_URL }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          set -eu
+          oss="$RUNNER_TEMP/ossutil"
+          config="$RUNNER_TEMP/ossutilconfig"
+          curl --fail --location --retry 3 \
+            https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64 --output "$oss"
+          chmod +x "$oss"
+          "$oss" config -c "$config" -e "$OSS_ENDPOINT" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          object="app-releases/idoltrail-app-${RELEASE_VERSION}.apk"
+          "$oss" cp "$APK_PATH" "oss://${OSS_BUCKET}/${object}" -c "$config" -f
+          url="${OSS_PUBLIC_URL%/}/${object}"
+          curl --fail --location --head "$url" > /dev/null
+          echo "APK_DOWNLOAD_URL=$url" >> "$GITHUB_ENV"
+          stat -c "APK_FILE_SIZE=%s" "$APK_PATH" >> "$GITHUB_ENV"
+
+      - name: 同步后台当前版本
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          APP_VERSION_ACCESS_KEY: ${{ secrets.APP_VERSION_ACCESS_KEY }}
+        run: node scripts/ci/sync-app-version.mjs
+
+      - name: 生成发布信息
+        run: |
+          sha256sum "$APK_PATH" > release-info.txt
           {
             echo "version: $RELEASE_VERSION"
-            echo "commit: ${{ github.sha }}"
-            echo "built_at: $(date -Is)"
-            echo "appid: __UNI__F1F9279"
-          } > release-info.txt
-          cat release-info.txt
+            echo "version_code: $RELEASE_VERSION_CODE"
+            echo "commit: $GITHUB_SHA"
+            echo "download_url: ${APK_DOWNLOAD_URL:-未发布（手动试运行）}"
+          } >> release-info.txt
 
-      - name: 上传交付包
+      - name: 上传 APK 构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: idoltrail-app-${{ github.ref_name }}
+          name: idoltrail-app-${{ env.RELEASE_VERSION }}-apk
           path: |
-            idoltrail-app-*.zip
+            ${{ runner.temp }}/idoltrail-app.apk
             release-info.txt
-          retention-days: 30
+          retention-days: 14
 
-      - name: 发布说明
-        if: always()
-        run: |
-          echo "版本   : $RELEASE_VERSION"
-          echo "提交   : ${{ github.sha }}"
-          echo "产物   : idoltrail-app-${RELEASE_VERSION}.zip"
-          echo "下一步 : 下载 artifact → HBuilderX 导入 → 云打包（Android APK/AAB、iOS IPA）"
+      - name: 创建 GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: idoltrail-app ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ runner.temp }}/idoltrail-app.apk
+            release-info.txt

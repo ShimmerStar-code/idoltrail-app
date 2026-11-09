@@ -137,6 +137,11 @@
 
       <!-- 底部提交栏 -->
       <view class="submit-bar">
+        <!--
+          贡献者须知：用户自己就是数据提供者，
+          这里告诉他「发布即代表已核实」，比在启动时弹一次免责声明有效得多。
+        -->
+        <text class="submit-disclaimer">{{ DISCLAIMER_SHORT }}发布即代表您已核实内容，并对所提供的信息负责。</text>
         <button class="submit-btn" :class="{ 'submit-btn--off': !canSubmit }" :disabled="!canSubmit" @click="submit">
           {{ submitting ? '提交中...' : '提交情报' }}
         </button>
@@ -152,6 +157,7 @@ import PageLayout from '@/components/PageLayout/index.vue'
 import { submissionApi } from '@/api/submission'
 import { useUserStore } from '@/stores/user'
 import { getNavBarMetrics } from '@/utils/system'
+import { DISCLAIMER_SHORT } from '@/constants/disclaimer'
 import type { Submission } from '@/types/submission'
 
 const MAX_IMAGES = 3
@@ -517,7 +523,9 @@ onMounted(() => {
 }
 
 .bottom-spacer {
-  height: 160rpx;
+  /* 底部固定提交栏现在多了一行贡献者须知，留出的高度要跟着涨，
+     否则最后一条内容会被压在栏下面看不到 */
+  height: 230rpx;
 }
 
 /* ─── 底部提交栏 ─── */
@@ -529,6 +537,13 @@ onMounted(() => {
   padding: 20rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
   background: #fff;
   box-shadow: 0 -8rpx 24rpx rgba(0, 0, 0, 0.06);
+}
+.submit-disclaimer {
+  display: block;
+  margin-bottom: 12rpx;
+  color: #9aa0a6;
+  font-size: 21rpx;
+  line-height: 1.5;
 }
 .submit-btn {
   width: 100%;

@@ -28,21 +28,24 @@
               <text class="tab-text">{{ t }}</text>
             </view>
           </view>
-          <!-- 订阅城市：放在 tab 正下方而不是标题栏。
+          <!-- 新增订阅：放在 tab 正下方而不是标题栏。
                原来标题右侧是一个 60rpx 的白底圆点，只有「+」，在真机上只有约 30px，
                夹在大标题里几乎看不见，用户根本不知道能点。
                现在改成整行、带图标的描边按钮，放在 tab 切换条下方常驻（不随列表滚动），
-               进入城市 tab 就能看到。 -->
-          <view v-if="activeTab === 2" class="add-city-btn" @click="onAddCity">
+               进入对应 tab 就能看到。
+
+               偶像与城市两种 tab 各有自己的新增入口：
+                 - 偶像 → 跳「偶像」页（那里有搜索框 + 每个偶像的订阅按钮）
+                 - 城市 → 直接弹 CityPicker（城市是有限枚举，本地选就行） -->
+          <view v-if="activeTab === 0" class="add-btn" @click="onAddArtist">
             <uni-icons type="plus" size="17" color="#8A5600" />
-            <text class="add-city-text">订阅城市</text>
+            <text class="add-btn-text">订阅偶像</text>
           </view>
         </view>
 
         <scroll-view
           scroll-y
           class="scroll-body"
-          :style="{ paddingBottom: tabBarHeight + 'px' }"
           :scroll-into-view="scrollAnchorId"
           @scroll="onVirtualScroll"
           @scrolltolower="onScrollLower"
@@ -133,6 +136,12 @@
           <!-- ── Tab 2 城市 ── -->
           <template v-if="activeTab === 2">
             <view class="tab-tip">{{ TAB_TIPS[2] }}</view>
+
+            <!--
+              已订阅的城市：保留可退订入口。
+              App 端不再提供「订阅城市」的新增入口（一个城市的活动量太大，
+              订阅城市等于订阅一座城市的公告栏），新增走下面的「场馆订阅」。
+            -->
             <view
               v-if="store.myCities.length === 0 && !store.loading.cities"
               class="empty"
@@ -149,20 +158,68 @@
               @updateExtra="onUpdateCityExtra"
               @openRelated="onOpenCityRelated"
             />
+
+            <!-- 场馆订阅：放在城市订阅列表下面 -->
+            <VenueSubPanel
+              :city-name="venueCity.name"
+              :venues="venueList"
+              :loading="venueLoading"
+              :subscribed-ids="store.subscribedVenueIds"
+              :subscribed-count="store.myVenues.length"
+              :limit="VENUE_LIMIT"
+              @pick-city="onPickVenueCity"
+              @subscribe="onSubscribeVenue"
+              @unsubscribe="onUnsubscribeVenue"
+            />
+          </template>
+          <!-- ── Tab 3 日程 ── -->
+          <template v-if="activeTab === 3">
+            <view class="tab-tip">{{ TAB_TIPS[3] }}</view>
+            <ScheduleCalendar
+              v-if="scheduleItems.length"
+              :items="scheduleItems"
+              :month="scheduleMonth"
+              :selected="scheduleDate"
+              @update:month="scheduleMonth = $event"
+              @pick-day="onPickDay"
+            />
+            <view v-else class="empty">
+              还没有可放进日程的订阅
+            </view>
+
+            <!-- 选中日的活动 -->
+            <view v-if="dayItems.length" class="schedule-list">
+              <view
+                v-for="it in dayItems"
+                :key="it.id"
+                class="schedule-item"
+              >
+                <view class="schedule-item__main">
+                  <text class="schedule-item__title">{{ it.title }}</text>
+                  <text class="schedule-item__meta">
+                    {{ it.startDate }}
+                    <text v-if="it.city"> · {{ it.city }}</text>
+                  </text>
+                </view>
+                <view class="schedule-item__btn" @click="onAddToCalendar(it)">
+                  <uni-icons type="calendar" size="14" color="#8A5600" />
+                  <text class="schedule-item__btn-text">加入日历</text>
+                </view>
+              </view>
+            </view>
           </template>
         </scroll-view>
       </template>
-
-      <TabBar :current="2" />
     </view>
 
-    <!-- 城市选择 sheet（复用 CityPicker） -->
+    <!-- 城市选择 sheet（复用 CityPicker）：
+         两种用途 —— 订阅城市（老入口）与浏览某城市的场馆 -->
     <CityPicker
       :visible="cityPickerVisible"
       :selected-city="''"
       :subscribed-ids="[...store.subscribedCityIds]"
       @update:visible="cityPickerVisible = $event"
-      @select="onPickCity"
+      @select="onCityPickedForVenue"
     />
   </PageLayout>
 </template>
@@ -171,20 +228,30 @@
 import PageLayout from "@/components/PageLayout/index.vue";
 import ArtistGridCell from "@/components/Subscribe/ArtistGridCell.vue";
 import CitySubCard from "@/components/Subscribe/CitySubCard.vue";
+import VenueSubPanel from "@/components/Subscribe/VenueSubPanel.vue";
+import ScheduleCalendar, {
+  type ScheduleItem,
+} from "@/components/Subscribe/ScheduleCalendar.vue";
 import EventCard from "@/components/EventCard/index.vue";
 import LoginPrompt from "@/components/LoginPrompt/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import CityPicker from "@/components/CityPicker/index.vue";
 import { useSubscribeStore } from "@/stores/subscribe";
+import { venueApi } from "@/api/venue";
 import { useUserStore } from "@/stores/user";
 import { useDictionaryStore } from "@/stores/dictionary";
 import { GENRES } from "@/constants/genres";
-import type { ArtistCardVO, CityCardVO, EventCardVO } from "@/types/subscription";
+import { todayYMD } from "@/constants/eventMeta";
+import { formatCity } from "@/constants/cities";
+import type { ArtistCardVO, CityCardVO, EventCardVO, VenuePlace } from "@/types/subscription";
 import type { Event } from "@/types/event";
 import type { DictOption } from "@/types/dictionary";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { getStatusBarHeight } from "@/utils/system";
+import { switchTabPage } from "@/utils/pages";
+import { addToSystemCalendar } from "@/utils/calendar";
+import { track } from "@/utils/analytics";
+import { ANALYTICS_EVENTS } from "@/constants/analytics";
 import { useVirtualList } from "@/composables/useVirtualList";
 const userStore = useUserStore();
 const store = useSubscribeStore();
@@ -203,22 +270,22 @@ const tagOptions = computed<DictOption[]>(() =>
 );
 
 const statusBarHeight = ref(20);
-const tabBarHeight = ref(80);
 const activeTab = ref(0); // 0 偶像 / 1 活动 / 2 城市
 const eventStatus = ref<"ongoing" | "expired">("ongoing");
 
 // 活动列表分页尺寸，与下方 loadAllTabs / onScrollLower 保持一致
 const EVENT_PAGE_SIZE = 20;
 
-const tabs = ["偶像", "活动", "城市"];
+const tabs = ["偶像", "活动", "城市", "日程"];
 
 // 每个 tab 顶部的一句说明，回答「订阅这个到底会给我什么」。
 // 放在列表上方而不是 header 里：header 常驻不滚动，切 tab 会带动整块高度变化；
 // 放进 scroll-view 后它随内容一起走，切 tab 不会让头部跳动。
 const TAB_TIPS = [
-  "下列偶像关联的活动都将通知您",
-  "已订阅的活动有变动时将通知您",
-  "所选城市的新活动将通知您",
+  "下列偶像关联的活动都将通知你（最多 50 位）",
+  "已订阅的活动有变动时将通知你",
+  "不直接订阅城市（活动量太大），改订阅你常去的场馆，有新活动时通知你",
+  "订阅过的演出在这里排成日历，可一键加入系统日历",
 ];
 
 // 当前展示的活动列表（按 status 切）
@@ -321,13 +388,14 @@ watch(
   }
 );
 
-/** 拉取三个 tab 需要的全部数据。onShow 与「登录后补拉」共用，避免两处复制同一段请求清单。 */
+/** 拉取各 tab 需要的全部数据。onShow 与「登录后补拉」共用，避免两处复制同一段请求清单。 */
 async function loadAllTabs() {
   await Promise.all([
     store.fetchMyArtists(),
     store.fetchMyEvents("ongoing", 1, EVENT_PAGE_SIZE),
     store.fetchMyEvents("expired", 1, EVENT_PAGE_SIZE),
     store.fetchMyCities(),
+    store.fetchMyVenues(),
     store.fetchArtistRelatedEvents(1, 5),
   ]);
 }
@@ -336,6 +404,103 @@ function onTabChange(i: number) {
   activeTab.value = i;
   // 三个 tab 内容完全不同，共用滚动位置会让窗口化按错误的起点渲染
   scrollListToTop();
+  // 日程 tab 需要更完整的历史（默认每页只有 20 条，日历要覆盖整月），
+  // 进这个 tab 时再单独拉一次，不在进页面时就多打两个请求。
+  if (i === 3) void loadScheduleData();
+}
+
+// ── 日程（tab 3）─────────────────────────────────────────────────
+const todayYmdStr = todayYMD();
+const scheduleMonth = ref(todayYmdStr.slice(0, 7)); // YYYY-MM
+const scheduleDate = ref(todayYmdStr); // YYYY-MM-DD
+
+/**
+ * 订阅活动 → 日历条目
+ *
+ * 用后端下发的 first_event_date / last_event_date（真实场次日期），
+ * 不用 start_date / end_date —— 后者由后台 SyncEventDates 回写，存在陈旧值
+ * （实测有活动 start=end=2026-12-18，实际场次跨 10-30~12-18）。
+ * 缺失时退回 start_date（旧数据兜底）。
+ */
+const scheduleItems = computed<ScheduleItem[]>(() => {
+  const all = [...store.myEventsOngoing, ...store.myEventsExpired];
+  const out: ScheduleItem[] = [];
+  for (const vo of all) {
+    const start = vo.event.first_event_date || vo.event.start_date;
+    if (!start) continue;
+    // 结束日：真实最晚场次；缺 last_event_date 时用 end_date；
+    // 两者都没有就用 start_date（单日活动）
+    const end =
+      vo.event.last_event_date ||
+      vo.event.end_date ||
+      String(start).slice(0, 10);
+    // 城市：巡演显示「城市·N城」（如「北京·23城」），单城显示城市名。
+    // city 是后端下发的全量首城（最早那一场）。
+    const cityCount = vo.event.city_count ?? 0;
+    const cityName = vo.event.city
+      ? formatCity(vo.event.city)
+      : "";
+    const city =
+      cityCount > 1
+        ? cityName
+          ? `${cityName}·${cityCount}城`
+          : `${cityCount}城`
+        : cityName;
+    out.push({
+      id: vo.event.id,
+      title: vo.event.title,
+      startDate: String(start).slice(0, 10),
+      endDate: String(end).slice(0, 10),
+      city,
+    });
+  }
+  return out;
+});
+
+/** 选中日当天的活动（含跨天活动） */
+const dayItems = computed(() => {
+  const day = scheduleDate.value;
+  return scheduleItems.value.filter(
+    (it) => it.startDate <= day && day <= (it.endDate || it.startDate),
+  );
+});
+
+function onPickDay(date: string) {
+  scheduleDate.value = date;
+}
+
+/** 日程数据：进行中 + 已失效各 100 条（覆盖一整年的排期足够） */
+async function loadScheduleData() {
+  try {
+    await Promise.all([
+      store.fetchMyEvents("ongoing", 1, 100),
+      store.fetchMyEvents("expired", 1, 100),
+    ]);
+  } catch (e) {
+    console.warn("[subscribe] loadScheduleData failed", e);
+  }
+}
+
+/** 一键写入系统日历：给用户一个「不在 App 里也能被提醒」的理由 */
+async function onAddToCalendar(item: ScheduleItem) {
+  try {
+    await addToSystemCalendar({
+      title: item.title,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      location: item.city,
+      description: "来自 idoltrail App 的演出日程",
+    });
+    track(ANALYTICS_EVENTS.AGENDA_ADD, { event_id: item.id, ok: 1 });
+    uni.showToast({ title: "已加入系统日历", icon: "success" });
+  } catch (e: any) {
+    track(ANALYTICS_EVENTS.AGENDA_ADD, { event_id: item.id, ok: 0 });
+    uni.showToast({
+      title: e?.message || "写入失败，请检查日历权限",
+      icon: "none",
+      duration: 2500,
+    });
+  }
 }
 
 // 二级 segment（进行中 / 已失效）切换：列表整体替换，同样要归零
@@ -345,37 +510,101 @@ function onEventStatusChange(s: "ongoing" | "expired") {
   scrollListToTop();
 }
 
+// ── 添加偶像 ──
+/**
+ * 跳到「偶像」页去搜索并订阅。
+ *
+ * 为什么是跳转而不是像城市那样弹一个选择器：
+ *   偶像是**开放集合**（库里几百个、还在持续增加），没有「城市」那种有限枚举，
+ *   本地列不出来也不适合做 picker。偶像页已经有搜索框 + 每个偶像的订阅按钮，
+ *   让用户自己去搜、自己挑，比这里再塞一个选择器更顺。
+ *
+ * 用 switchTabPage 而不是 navigateTo：
+ *   偶像页是 tab 页（原生 tabBar，pages/artist/list），navigateTo 到 tab 页
+ *   会直接报错「can not navigateTo a tabbar page」，必须走 switchTab。
+ */
+function onAddArtist() {
+  switchTabPage("/pages/artist/list");
+}
+
 // ── 添加城市 ──
 const cityPickerVisible = ref(false);
 
-function onAddCity() {
-  // + 号只在城市 tab 显示（v-if 控制），所以点 + 直接弹 CityPicker
-  if (!userStore.isLoggedIn) {
-    userStore.requireLogin({
-      dismissible: true,
-      reason: "subscribe_city_add",
-      onSuccess: () => {
-        cityPickerVisible.value = true;
-      },
-    });
-    return;
-  }
+/**
+ * 城市选择器目前**只有一个用途**：浏览某城市的场馆。
+ *
+ * App 端不再提供「订阅城市」的新增入口 —— 一个城市每月几十场活动，
+ * 订阅城市等于订阅一座城市的公告栏，量太大、噪音高；
+ * 用户真正反复关注的是常去的那几个场，所以新增订阅走「场馆」。
+ * （后端的城市订阅接口保留：独立小程序代码库还在用。）
+ */
+const venueCity = ref<{ id: string; name: string }>({ id: "", name: "" });
+const venueList = ref<VenuePlace[]>([]);
+const venueLoading = ref(false);
+
+/** 场馆订阅上限（与后端 service.MaxVenueSubscriptions 保持一致） */
+const VENUE_LIMIT = 20;
+
+/** 打开城市选择器：浏览某城市的场馆 */
+function onPickVenueCity() {
   cityPickerVisible.value = true;
 }
 
-async function onPickCity(city: { name: string; id: string }) {
+/** 选好城市 → 拉该城市的场馆列表 */
+async function onCityPickedForVenue(city: { name: string; id: string }) {
   cityPickerVisible.value = false;
   if (!city.id) {
     uni.showToast({ title: "未找到该城市", icon: "none" });
     return;
   }
+  venueCity.value = { id: city.id, name: city.name };
+  venueLoading.value = true;
   try {
-    await store.toggleCity(city.id, {});
-    uni.showToast({ title: "已订阅", icon: "success" });
-    await store.fetchMyCities();
-  } catch (e: any) {
-    uni.showToast({ title: e?.message || "订阅失败", icon: "none" });
+    const res = await venueApi.listByCity(city.id, 1, 50);
+    venueList.value = res?.list || [];
+  } catch (e) {
+    venueList.value = [];
+    uni.showToast({
+      title: (e as Error)?.message || "场馆加载失败",
+      icon: "none",
+    });
+  } finally {
+    venueLoading.value = false;
   }
+}
+
+/** 订阅场馆 */
+function onSubscribeVenue({ venue }: { venue: VenuePlace }) {
+  userStore.requireLogin({
+    dismissible: true,
+    reason: "subscribe_venue",
+    onSuccess: async () => {
+      try {
+        await store.toggleVenue(venue.id);
+        uni.showToast({ title: "已订阅", icon: "success" });
+        await store.fetchMyVenues();
+      } catch (e: any) {
+        uni.showToast({ title: e?.message || "订阅失败", icon: "none" });
+      }
+    },
+  });
+}
+
+/** 退订场馆 */
+function onUnsubscribeVenue({ venue }: { venue: VenuePlace }) {
+  userStore.requireLogin({
+    dismissible: true,
+    reason: "subscribe_venue",
+    onSuccess: async () => {
+      try {
+        await store.toggleVenue(venue.id);
+        uni.showToast({ title: "已退订", icon: "success" });
+        await store.fetchMyVenues();
+      } catch (e: any) {
+        uni.showToast({ title: e?.message || "操作失败", icon: "none" });
+      }
+    },
+  });
 }
 
 function onScrollLower() {
@@ -481,6 +710,13 @@ function voToEvent(vo: EventCardVO): Event {
     poster_url: vo.event.poster_url,
     start_date: vo.event.start_date,
     end_date: vo.event.end_date,
+    // 场次统计：巡演活动在这里要显示「共 N 场」，
+    // sessions 是前端用 brief.city 伪造的单场（后端只下发首场城市），
+    // 所以统计必须走后端下发的 session_count，不能用 sessions.length。
+    session_count: vo.event.session_count,
+    city_count: vo.event.city_count,
+    first_event_date: vo.event.first_event_date,
+    last_event_date: vo.event.last_event_date,
     sessions: vo.event.city
       ? ([{ city: vo.event.city, event_date: vo.event.start_date }] as any)
       : [],
@@ -536,7 +772,7 @@ function voToEvent(vo: EventCardVO): Event {
   color: rgba(51, 51, 51, 1);
 }
 
-/* 订阅城市：整行描边按钮，挂在 tab 下方。
+/* 新增订阅（偶像 / 城市两个 tab 共用）：整行描边按钮，挂在 tab 下方。
    高度 88rpx（约 44pt），满足移动端可点区域下限。
    原来用实心 #fea500 配 30rpx 白字，反馈是「颜色太浓、字看不清」。
    改成浅橙底 + 同色系描边 + 深棕字：
@@ -544,7 +780,7 @@ function voToEvent(vo: EventCardVO): Event {
      字 #8A5600 → 实测对比度 5.74:1，达 WCAG AA（4.5:1）
    （中途试过 #B87503，只有 3.50:1，不达标，已弃用；
      实心橙底 30rpx 白字本身就只有约 1.9:1，这就是看不清的根因。） */
-.add-city-btn {
+.add-btn {
   margin-top: 20rpx;
   height: 88rpx;
   border-radius: 16rpx;
@@ -554,7 +790,7 @@ function voToEvent(vo: EventCardVO): Event {
   align-items: center;
   justify-content: center;
 }
-.add-city-text {
+.add-btn-text {
   margin-left: 10rpx;
   font-size: 30rpx;
   font-weight: 600;
@@ -699,5 +935,56 @@ function voToEvent(vo: EventCardVO): Event {
   color: #aaa;
   padding: 80rpx 0;
   font-size: 26rpx;
+}
+
+/* ── 日程 tab ────────────────────────────────────────────────── */
+.schedule-list {
+  margin: 24rpx 30rpx 40rpx;
+}
+.schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(236, 236, 236, 1);
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.04);
+  padding: 24rpx 26rpx;
+  margin-bottom: 20rpx;
+}
+.schedule-item__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.schedule-item__title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-item__meta {
+  font-size: 24rpx;
+  color: #666;
+}
+.schedule-item__btn {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 64rpx;
+  padding: 0 20rpx;
+  border-radius: 32rpx;
+  background: rgba(254, 165, 0, 0.1);
+  border: 2rpx solid rgba(254, 165, 0, 0.55);
+  flex-shrink: 0;
+}
+.schedule-item__btn-text {
+  font-size: 24rpx;
+  color: #8a5600;
+  font-weight: 600;
 }
 </style>

@@ -1,8 +1,8 @@
 name: CI
 
 # 提交代码时的验证流水线：只构建和测试，绝不部署、不打 tag。
-# App 的「发布」是 DCloud 云打包 + 应用商店分发，见 DEPLOY.md。
-# 打 tag 触发 release.yml 产出可交付的 App 资源包。
+# App 发布由 release.yml 调用 HBuilderX CLI 云打包并同步后台，见 DEPLOY.md。
+# 本工作流只负责验证和资源构建，不读取发布 Secrets。
 #
 # workflow_call 让本文件可被 release.yml 复用（needs: verify），
 # 保证「打 tag = 未经任何测试直接产出交付包」这件事不会发生。

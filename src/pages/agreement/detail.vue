@@ -43,6 +43,7 @@ import { authApi } from '@/api/auth'
 import { userApi } from '@/api/user'
 import { useUserStore } from '@/stores/user'
 import { getEffectiveAgreement } from '@/utils/agreementContent'
+import { switchTabPage } from '@/utils/pages'
 import {
   savePrivacyConsent,
   hasPrivacyConsent,
@@ -255,7 +256,9 @@ async function onAgree() {
   if (pages.length > 1) {
     uni.navigateBack()
   } else {
-    uni.reLaunch({ url: '/pages/home/index' })
+    // 首页是 tab 页 —— 用 switchTab 而不是 reLaunch：
+    // reLaunch 会清空页面栈并重建首页，丢掉原生 tabBar 的保活优势
+    switchTabPage('/pages/home/index')
   }
 }
 </script>

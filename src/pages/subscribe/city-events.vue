@@ -194,6 +194,11 @@ function voToEvent(vo: EventCardVO): Event {
     poster_url: vo.event.poster_url,
     start_date: vo.event.start_date,
     end_date: vo.event.end_date,
+    // 场次统计由后端下发（sessions 是前端伪造的单场，不能用它算场次数）
+    session_count: vo.event.session_count,
+    city_count: vo.event.city_count,
+    first_event_date: vo.event.first_event_date,
+    last_event_date: vo.event.last_event_date,
     sessions: vo.event.city
       ? ([{ city: vo.event.city, event_date: vo.event.start_date }] as any)
       : [],

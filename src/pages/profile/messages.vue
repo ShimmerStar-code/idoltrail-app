@@ -83,6 +83,8 @@ import type { Notification, NotificationType } from '@/types/notification'
 import { getNavBarMetrics } from '@/utils/system'
 import PageLayout from '@/components/PageLayout/index.vue'
 import { useVirtualList } from '@/composables/useVirtualList'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 const userStore = useUserStore()
 const notifStore = useNotificationStore()
 const navPaddingTop = ref(60) // 胶囊底部 + 间距，onMounted 后精确计算
@@ -193,8 +195,13 @@ async function loadMore() {
 
 async function handleItemClick(msg: Notification) {
   await notifStore.markRead(msg.id)
+  // 埋点：站内消息点击（与推送点击分开统计，看两条通路的回访贡献）
+  track(ANALYTICS_EVENTS.NOTIFICATION_CLICK, {
+    channel: 'inapp',
+    type: String(msg.relatedType || ''),
+  })
   if (msg.relatedType === 'event' && msg.relatedId) {
-    uni.navigateTo({ url: `/pages/event/detail?id=${msg.relatedId}` })
+    uni.navigateTo({ url: `/pages/event/detail?id=${msg.relatedId}&source=notification` })
   }
 }
 

@@ -22,11 +22,17 @@ export const APP_REGION = '北京市'
  */
 export const ICP_FILING_NO = '京ICP备2024102003号-2A'
 
-/** App 版本名，与 manifest.json versionName 保持一致 */
-export const APP_VERSION_NAME = '0.1.1'
+/**
+ * App 版本名，与 manifest.json versionName 保持一致。
+ *
+ * ⚠️ 这是**发版快照**，只作兜底：「关于我们」页优先显示**运行时**版本
+ * （getAppVersion() 读 plus.runtime.version）——
+ * 用户装的包可能比这个快照新或旧（灰度包、渠道包），快照会脱节。
+ */
+export const APP_VERSION_NAME = '0.1.2'
 
 /**
- * 版本渠道说明。0.1.1 仍是内部测试版，未上架应用商店，
+ * 版本渠道说明。当前仍是内部测试版，未上架应用商店，
  * 「关于我们」页需要如实标注，别让用户以为是正式发行版。
  */
 export const APP_VERSION_LABEL = '内部测试版'

@@ -86,7 +86,10 @@ export const useArtistStore = defineStore('artist', () => {
   let _detailSeq = 0
   async function fetchDetail(id: string) {
     const seq = ++_detailSeq
-    const data = await artistApi.detail(id)
+    // relations=none：组合艺人的 relations 全量能到几百条（AKB48 436 条 ≈ 90KB），
+    // 成员走 /artists/:id/members 分页接口拉，详情里就不带这坨数据了。
+    // 后端尚未支持该参数时会忽略它，详情页据此回退到 relations，功能不坏。
+    const data = await artistApi.detail(id, { relations: 'none' })
     // 期间又发起了新请求，丢弃本次结果，交给更新的那次写入
     if (seq !== _detailSeq) return
     detail.value = data

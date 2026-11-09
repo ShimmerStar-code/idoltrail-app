@@ -66,6 +66,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { userApi } from '@/api/user'
 import { getNavBarMetrics } from '@/utils/system'
+import { switchTabPage } from '@/utils/pages'
 import PageLayout from '@/components/PageLayout/index.vue'
 const userStore = useUserStore()
 const statusBarHeight = ref(20)
@@ -106,7 +107,7 @@ function changePhone() {
       if (!r.confirm) return
       try { await userStore.logout() } catch { /* ignore */ }
       userStore.clear?.()
-      uni.reLaunch({ url: '/pages/home/index' })
+      switchTabPage('/pages/home/index')
       setTimeout(() => {
         userStore.requireLogin({ dismissible: true, reason: 'change_phone' })
       }, 400)
@@ -135,11 +136,11 @@ async function handleLogout() {
   if (!confirmed) return
   try {
     await userStore.logout()
-    uni.reLaunch({ url: '/pages/home/index' })
+    switchTabPage('/pages/home/index')
   } catch {
     // 即便后端失败也清理本地登录态,确保用户能重新登录
     userStore.clear?.()
-    uni.reLaunch({ url: '/pages/home/index' })
+    switchTabPage('/pages/home/index')
   }
 }
 
@@ -175,7 +176,7 @@ async function cancelAccount() {
     try { await userStore.logout() } catch { /* ignore */ }
     uni.hideLoading()
     uni.showToast({ title: '账号已注销', icon: 'success' })
-    setTimeout(() => uni.reLaunch({ url: '/pages/home/index' }), 1200)
+    setTimeout(() => switchTabPage('/pages/home/index'), 1200)
   } catch (e: any) {
     uni.hideLoading()
     uni.showToast({ title: e?.message || '注销失败，请稍后再试', icon: 'none' })

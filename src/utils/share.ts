@@ -48,7 +48,7 @@ export function shareApp(opts: Partial<ShareOptions> = {}) {
       content: opts.summary || title,
       pictures: opts.imageUrl ? [opts.imageUrl] : undefined,
     },
-    () => console.log('[share] success', title),
+    () => undefined,
     (e: any) => console.warn('[share] cancel or fail', e),
   )
   return

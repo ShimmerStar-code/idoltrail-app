@@ -26,6 +26,26 @@ const REFRESH_TIMEOUT = 10000
 const AUTH_EXPIRED_CODES = [40101, 40102]
 
 /**
+ * 接口耗时上报器（注入式）。
+ *
+ * 为什么用注入而不是直接 import 埋点 SDK：
+ *   utils/analytics.ts 需要用 request() 上报埋点，
+ *   若 request.ts 再 import analytics.ts 就成了循环依赖。
+ *   注入式两边都不依赖对方（与 setAuthExpiredHandler 同一套路）。
+ *
+ * 为什么不用 `await import()`：App 平台打包要求单文件（output.format = iife），
+ * 动态 import 会触发代码分割，构建直接失败
+ * （"UMD and IIFE output formats are not supported for code-splitting builds"）。
+ */
+type LatencyReporter = (path: string, durationMs: number, ok: boolean, status?: number) => void
+let latencyReporter: LatencyReporter | null = null
+
+/** 注入耗时上报器（由 utils/analytics.ts 在初始化时调用） */
+export function setLatencyReporter(fn: LatencyReporter | null) {
+  latencyReporter = fn
+}
+
+/**
  * access token 提前续期阈值（ms）。
  *
  * access token 只有 15 分钟有效期。若不做预续期，用户静默一段时间后的
@@ -253,6 +273,13 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
         const t = token || getAccessToken()
         if (t) h['Authorization'] = 'Bearer ' + t
       }
+      // 埋点耗时统计：只统计业务请求
+      //
+      // 排除两类：
+      //   · /analytics/events —— 埋点自己上报自己的耗时会自我放大（而且会递归）；
+      //   · /auth/refresh    —— 续期是内部机制，不是用户感知到的业务请求。
+      const trackLatency = path !== '/analytics/events' && !path.startsWith('/auth/refresh')
+      const startedAt = Date.now()
       uni.request({
         url: BASE_URL + path,
         method: method as UniApp.RequestOptions['method'],
@@ -266,6 +293,9 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           // 既不 refresh、不弹登录框、也不 toast —— 用户表现为「接口一直失败但界面毫无反应」。
           const http401 = res.statusCode === 401
           const httpServerError = res.statusCode >= 500
+          if (trackLatency) {
+            latencyReporter?.(path, Date.now() - startedAt, res.statusCode >= 200 && res.statusCode < 400, res.statusCode)
+          }
 
           const body = res.data as ApiResponse<T> | null | undefined
           if (!body || typeof body !== 'object') {
@@ -309,6 +339,9 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           reject(bizError(body.message, body.code))
         },
         fail: (err) => {
+          if (trackLatency) {
+            latencyReporter?.(path, Date.now() - startedAt, false, 0)
+          }
           // 主动取消：只有「我们自己传了 signal 且已被 abort」才算取消。
           //
           // ⚠️ 不能靠 errMsg 判：Android 端网络不可达（后端宕机、连错地址、

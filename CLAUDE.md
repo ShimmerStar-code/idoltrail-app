@@ -45,6 +45,40 @@ uni-app 的 **JS 启动比原生晚**，三方 SDK（uni-push / 厂商通道 / W
 - 通知、相册、相机同理由用户主动操作触发。
 - `manifest.json` 不申请 `READ_PHONE_STATE`。
 
+### 城市定位与筛选：城市码由后端说了算
+
+**别再用 `constants/cities.ts` 的静态映射表反查城市码。** 它和库内真实写法对不上，
+拿它筛活动会一条都筛不出来（实测：`Xian`→0 而 `Xi'an`→38、`HongKong`→0 而
+`Xianggang`→18、`Macau`→0 而 `Aomen`→15、`Hohhot`→0 而 `Huhehaote`→8、
+`Urumqi`→0 而 `Wulumuqi`→5、`NewYork`→0 而 `New York`→591、
+`LosAngeles`→0 而 `Los Angeles`→337、`KualaLumpur`→0 而 `Kuala Lumpur`）。
+
+链路：
+
+```
+设备 → https://ip.idolact.cn/api（直连，自建）→ { country, city, region }（英文原值）
+     → 后端 GET /city/normalize → { name(中文), code, codes[] }
+     → /events?city=codes.join(',')
+```
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| IP 服务直连 | `src/api/ipGeo.ts` | 设备**直连** `ip.idolact.cn`。该服务只返回调用方自己的位置（传 `?ip=` 与各种 `X-Forwarded-For` / `CF-Connecting-IP` 实测全部无效），所以**不能由后端代理**（代理只能拿到服务器自己的位置）。必须走 HTTPS（Android 9+ 禁明文） |
+| 归一化 | `src/api/geo.ts` 的 `normalizeCity` | 问后端要「这个城市在库里有哪几种写法」。后端口径 = `regions` ∪ `region_aliases`（Meilisearch 别名搜索）→ 别名闭包 → `event_sessions.city` 里的真实写法集合 |
+| 筛选参数 | `src/utils/cityFilter.ts` | `resolveCityCodes()` 取写法集合、`cityQueryValue()` 拼逗号分隔串。后端 `/events?city=` 支持逗号多值（单值退化为 `col = ?` 以保住函数索引 `idx_sessions_city_lower`） |
+| 定位主链路 | `src/utils/location.ts` | 返回**结构化**结果 `LocatedCity{ name, code, codes[], country, regionId }`；缓存 key `fans:locate:city:v3`（v2 是字符串结构、v1 曾缓存过「景山」这类街道名） |
+
+红线：
+
+- **同一个城市在库里有多种写法**（香港 = `Hong Kong` + `Xianggang`、西安 = `Xi'an` + `xian`），
+  筛选时必须带上**全部**写法，漏一个就漏一批场次。`codes` 就是这个集合。
+- `constants/cities.ts` 现在只用于**展示**（中文名 ↔ 英文名的本地映射）与热门城市名单，
+  **不再用于请求参数**。改它不会影响筛选结果，改后端数据才会。
+- `CityPicker` 的 `select` 事件带 `{ name, id, code }`：`name` 中文（展示）、
+  `id` 是 region.id（订阅用）、`code` 是英文写法（筛活动用）。
+- 城市未命中站内（`matched: false`）时按定位失败处理（首页回落全国视图），
+  **不要**静默塞一个筛不出活动的假城市进缓存。
+
 ### 登录
 
 App 端无免密登录能力，登录链路固定为：
@@ -182,49 +216,173 @@ LoginModal 打开 → preLoginOneKey() 后台探测（成功才可能在勾选�
 业务失败 reject 的 `Error` 上带 `code`（后端 errno，见 `bizError()`）。
 需要按错误类型分流的调用方读 `e.code`，**不要再匹配文案**（后端改文案就失效）。
 
+### 统一升级：uni-upgrade-center-app（全量升级 / 整包 APK）
+
+**插件已装**：`src/uni_modules/uni-upgrade-center-app`（0.11.3），
+依赖 `uts-openSchema` / `uts-progressNotification` 两个 UTS 原生插件
+（编译需要 `@dcloudio/uni-uts-v1`，已进 devDependencies，版本与 `@dcloudio/*` 对齐）。
+
+**当前阶段只做全量升级**（`type = 'native_app'`，整包 APK），**不做 wgt 热更新**：
+本项目的改动普遍涉及 manifest / 原生模块 / 分包结构，热更新后行为不可预期。
+
+**版本数据源仍在自研后端，不用插件的 uniCloud 云函数**：
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| 版本真源 | 后端 `app_versions` 表（MySQL）+ `GET /public/app-versions/latest` | 运营在 admin 后台「App 版本与下载」录入；官网下载区 / 二维码 / App 内提示**同源** |
+| 升级入口 | `src/utils/appUpdate.ts` | 取版本 → 比对 → 组装插件的 `UniUpgradeCenterResult` → `updateManager.showUpdate()` |
+| 升级 UI | 插件 `pages/upgrade-popup.vue` | 更新说明、强制/非强制、下载进度、原生安装器唤起 |
+| 手动入口 | `src/pages/profile/about.vue` 的「检查更新」 | 之前是 `openExternalUrl(download_url)` 跳浏览器下载（要用户自己找文件再点安装，还要处理"允许安装未知来源"）→ 已换成插件升级页 |
+| 启动自动检查 | `App.vue` 的 `afterPrivacyConsent()` → `scheduleStartupUpdateCheck()` | 延迟 3s、静默失败、同一版本不重复打扰（`fans:upgrade:prompted:v1`） |
+
+**为什么不用插件自带的 `checkUpdate()`**：它硬编码调 uniCloud 云函数 `uni-upgrade-center`，
+版本记录放在 uniCloud 集合 `opendb-app-versions`。若再引入一套，
+运营就要在**两个地方**录版本、官网下载区还得单独维护 —— 那不是「统一」，是又多一个源。
+插件的 `showUpdate(packageInfo)` 明确支持**显式传入包信息**，所以不需要云函数、
+不需要 uniCloud 数据库、不需要第二个服务空间。
+
+红线：
+
+- **检查更新要发网络请求 → 必须在隐私同意之后**。`appUpdate.ts` 自己再查一次
+  `hasPrivacyConsent()`，不依赖调用方的正确性。
+- **升级页路由必须注册在 `src/pages.json` 的主包**：插件的 `showUpdate` 用的是
+  写死的绝对路径 `/uni_modules/uni-upgrade-center-app/pages/upgrade-popup`，
+  放进分包会 navigateTo 失败（uni_modules 的页面**不会**自动进路由表）。
+- **iOS 不走整包升级**：分发是 App Store / TestFlight，App 内没有可直装的整包，
+  `appUpdate.ts` 返回 `unsupported_platform`，UI 提示去商店。
+- `manifest.json` 需要 `REQUEST_INSTALL_PACKAGES` 权限（Android 8+ 安装 APK 必需，
+  属功能性权限，不在启动时申请）。
+- **版本号三处要对齐**：`manifest.json` 的 `versionName` / `versionCode`（versionCode 必须递增，
+  否则覆盖安装被系统拒绝）、`src/constants/appInfo.ts` 的 `APP_VERSION_NAME`（关于页展示）、
+  后台 `app_versions` 的 `version_name`。「关于我们」页显示的是**运行时**版本
+  （`getAppVersion()`），不是包内常量 —— 常量是发版快照，会与实际安装版本脱节。
+- **插件的 TS 源码不参与本项目的类型检查**（它是按 uni-app x + 条件编译写的，
+  自身在传统 uni-app 的 TS 环境里就编译不过）。做法见 `tsconfig.json`：
+  `exclude` 排掉 `src/uni_modules` + `paths` 把插件的两个模块指向
+  `src/types/uni-upgrade-center.d.ts`（本地维护的声明）。运行时不受影响
+  （vite 用自己的 alias 解析，仍加载插件真实源码）。
+- ⚠️ `src/uni_modules/uni-upgrade-center-app/utils/update-manager.ts` 第 1 行有**本地补丁**
+  （类型导入改成 `import type`），消掉每次构建的两条 "is not exported by" 警告。
+  插件升级覆盖后需重新打。
+
 ### 弹层与提示
 
 - 弹窗打开期间的错误提示一律**内联展示**，不要用 `uni.showToast`：`LoginModal` / `PrivacyPopup` / `CityPicker` / `NotificationPromptModal` 均已改为内联文案。
 - `src/App.vue` 里 `uni-toast` / `uni-modal` 被提升到 `z-index: 10000`，高于所有 popup 的 9999。新增全局弹层时注意层级顺序。
 - 弹窗关闭动画结束再弹 toast 时，加 `setTimeout`（约 350–400ms）。
 
+### 启动只弹一个窗：隐私同意
+
+启动阶段**只允许有一个必须打断用户的弹窗：隐私同意**（原生模板弹窗 / 降级自绘弹窗）。
+协议补签、登录框都属于「用户本来就要操作才能用」的流程，可以弹；
+其余凡是「只是告知、不需要授权」的内容，**一律不得在启动时弹窗**。
+
+数据免责声明原来在启动时弹（`DisclaimerPopup`），已撤掉：
+
+- 组件 `src/components/DisclaimerPopup/`、store `src/stores/app.ts`、
+  storage 的 `hasDisclaimerShown/setDisclaimerShown` 全部删除，别再复活。
+- 文案与举报邮箱统一在 `src/constants/disclaimer.ts`（`DISCLAIMER_FULL` /
+  `DISCLAIMER_SHORT` / `REPORT_EMAIL`）。
+- 现在下沉到三处**常驻**位置：
+  1. 「关于我们」页 → 数据说明与侵权举报区块（完整正文 + 可复制举报邮箱）
+  2. 活动详情页底部 → 一行免责小字 + 「侵权举报」（点击复制邮箱）
+  3. 上传情报页提交栏 → 贡献者须知（发布即代表已核实）
+
+理由：启动弹窗每多一层就掉一截留存，而免责声明不需要用户授权任何能力。
+
 ### 启动图（splashscreen）
 
 Android 启动图是**原生层**资源（Activity 的 `windowBackground`），不是前端页面。
 
-- `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 图片比例 ≠ 屏幕比例就**必然拉伸变形**。
-  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：旧图 1080×1882 被纵向拉伸
+- `windowBackground` 的 Bitmap 被系统按 **fill** 铺满窗口 → 普通 PNG 图比例 ≠ 屏幕比例就**必然拉伸变形**。
+  实测（Redmi K40 / 1080×2460 / Android 14 / MIUI）：旧整屏图 1080×1882 被纵向拉伸
   **1.307 倍**（2460/1882）铺满全屏，logo 与文字明显拉长 —— 这就是「启动图畸变」的根因。
-- **解法：直接用设计交付的成品整屏图（普通 PNG），并让每个密度桶选该桶最常见的屏幕比例。**
-  - 残余畸变 = (屏高/屏宽) ÷ (图高/图宽) − 1，**只与比例有关，与密度桶无关**
-    （密度缩放等比，在相对畸变里抵消；真机反解：K40 上垂直 0.7640 / 水平 0.9980）。
-  - 三档映射（`app-plus.distribute.splashscreen.android` 只有 hdpi/xhdpi/xxhdpi 三档，
-    见 `uniapp-manifest-schema.json`）：
-    | 桶 | 图 | 覆盖屏幕 | 最大畸变 |
-    |----|----|---------|---------|
-    | xxhdpi | `splash_1080x2400.png`（20:9） | 1080×2340 / 2400 / 2460 / 2520、1440×3120 / 3200 | ≤5% |
-    | xhdpi | `splash_720x1440.png`（18:9） | 720×1280 / 1440 / 1600 | 11% |
-    | hdpi | `splash_480x800.png`（16:9） | 480×800 / 854 | 6.7% |
-  - Redmi K40 上：相对畸变 **1.0250**（纵向 2.5%），标志区纵横比形变 **2.4%**，
-    肉眼基本看不出（旧方案是 30.7% / 23.5%）。
-- **零像素改动是硬红线**。三张图是设计交付包 `fullscreen/` 里的**原件**，md5 锁定：
-  `d26f4f4fe168071cc0db7dd72d506a72` / `f937aba82c8de3823db284b08ae9996d` /
-  `72ac986ed852eef0c41fcff2c910f68a`。
-  `npm run check:splash` 会校验 manifest 三档路径 + 实际尺寸 + md5，任何改动直接非零退出。
-- **不要再改成 `.9.png` 或自行合成**：九宫格会把设计稿整幅插画拆成「固定区 + 拉伸区」，
-  底部插画被拉长、标志区位置漂移，效果反而更差（上一版就是这么翻车的）。
-  设计交付包 README 里「不要把整屏 PNG 直接设为 windowBackground」的警告针对的是
-  **自绘/合成**图；本方案图与屏比例本就接近，残余畸变 ≤5% 可接受。
-- `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的这组图**整个不生效**）；
+- **解法：`.9.png`（九宫格）**，官方明确支持
+  （<https://uniapp.dcloud.net.cn/tutorial/app-splashscreen.html>「Android平台同时支持使用.9.png图片…
+  可以指定特定的区域进行拉伸而不失真」）。
+  - 固定区 = 品牌锁定图 `splash_brand.png`（原件，200dp，**不缩放不重采样**）→ 1:1 不变形；
+  - 可拉伸区 = 品牌区之外的渐变底 → 多余空间只由可拉伸区按各自源尺寸比例瓜分；
+  - 上下留白相等 ⇒ 品牌在**任何**机型上都居中（K40 实测居中偏差 x 0.0px / y ≤0.5px）。
+  - 数值：品牌形变 **0%**、品牌像素 Δ0、渐变接缝 Δ1/255（普通 PNG 方案是 2.5%~5% 形变）。
+- **底色按 AOSP `GradientDrawable` 语义从 res 渲染**（`res/drawable/splash_background.xml`）：
+  - `angle=315` → `Orientation.TL_BR`（渐变线 = 矩形对角线 `(0,0)→(w,h)`，
+    `t = (x·w + y·h)/(w²+h²)`）；
+  - `centerColor` 停靠点 = `mCenterX != 0.5 ? mCenterX : mCenterY` = **0.30**。
+  - 底色只取交付视觉里真实出现的 `#FFE39A → #FCA8B3`（粉位仍在 30%）。
+    设计师交付图（`preview/android_layerlist_1080x1920.png` 与 `fullscreen/` 天空区）
+    的底色**深紫占比 0.0%**，`#9C5B87` 只出现在底部插画里；
+    若按 XML 字面再叠 `endColor=#9C5B87`，右下角会铺满深紫（实测「亮度 < 140」的像素
+    占 **17.3%**，平均亮度从 200.6 掉到 175.5），与交付视觉不符 —— 别再加蒙层/调色去救。
+- **文件组织（云打包约定）**：`app-icons/splash-9patch/{hdpi,xhdpi,xxhdpi}/splash.9.png`
+  - 文件名必须以 **`.9.png` 结尾**：aapt2 只对 `*.9.png` 编译 nine-patch chunk（资源名仍是
+    `drawable/splash`）；改名成 `splash.png` 会丢 chunk → 露出 1px 黑边并被拉伸。
+  - 与官方离线打包约定一致（`res/drawable-xxxhdpi/splash.9.png`）。
+  - ⚠️ **云打包取的不是 `app-icons/`，而是 HBuilderX 的工作缓存**
+    `dist/cache/wgt/<appid>/.manifest/splash-android-<桶>.9.png`。
+    该缓存**只在 manifest 里的路径变化时才会重新拷贝**——同路径文件内容改了它不刷新，
+    于是「明明改了启动图，云打包还是用旧文件」（本次就是这样：修好边框后云打包仍报
+    `too many padding sections on bottom border`）。
+    **改完启动图必须手动同步**：
+    ```bash
+    for b in hdpi xhdpi xxhdpi; do cp "app-icons/splash-9patch/$b/splash.9.png" \
+      "dist/cache/wgt/__UNI__F1F9279/.manifest/splash-android-$b.9.png"; done
+    ```
+    （appid 以 `src/manifest.json` 的 `appid` 为准；同步后用 md5 核对缓存里的文件。）
+    `npm run build:app`（CLI）**不产** `.manifest`，这个目录只有 GUI 打包流程才会生成。
+- **九宫格边框语义（aapt2 规则，踩过坑）**：
+  - **上边**黑段 = 水平可拉伸的**列**（stretchX），**左边**黑段 = 垂直可拉伸的**行**（stretchY）
+    —— 这两边**允许多段**（品牌图居中，左右/上下各一段）；
+  - **下边/右边**黑段 = 内容区 **padding**，aapt2 **最多允许 1 段**；
+    本图内容铺满整张、没有 padding，所以这两边**一个黑像素都不能画**。
+  - ⚠️ 早期版本把黑段同时画在「顶+底 / 左+右」四边 → **云打包直接失败**：
+    `error: too many padding sections on bottom border.` + `error: file failed to compile.`
+    （底边两段黑 = 两段 padding，aapt2 拒绝）
+- **字节级锁定是硬红线**，`npm run check:splash` 校验：manifest 三档路径 + PNG 实际尺寸
+  （内容 + 2px 边框）+ md5 + **九宫格边框标记**（上边黑段 = 水平可拉伸列、
+  左边黑段 = 垂直可拉伸行，且恰好等于「品牌区之外」；下边/右边必须无黑；角点透明）。任何改动非零退出。
+  - md5：`2f06bd1d80c280b193bea368df9db372`（hdpi 482×802）/
+    `6142ee671c292047e148f4ff535ffe7b`（xhdpi 722×1442）/
+    `828d45347d6f48190345f0d3a0dc2723`（xxhdpi 1082×2402）
+  - ⚠️ **整圈描黑 = 整张图都变可拉伸区** → 品牌图跟着变形。边框黑段只能画在「品牌区之外」。
+  - **产物由脚本生成**：`python scripts/build-splash-9patch.py --design "<交付素材根目录>"`
+    （需 Pillow；素材目录含 `android/app/src/main/res/drawable-{hdpi,xhdpi,xxhdpi}/splash_brand.png`）。
+    脚本内置 aapt2 等价自检（底/右黑段数、顶/左黑段、角点透明），并打印新 md5 → 填回
+    `scripts/check-splash.mjs` 的 `EXPECTED`。**改启动图必须走脚本，不要手改 PNG**。
+- `androidStyle` 必须 `"default"`（取 `"common"` 时按密度配的组图**整个不生效**）；
   iOS 必须保持 `"common"`（自定义启动图自 2020-06-30 起无法提交 App Store）。
-- `androidNavigationBarColor: "#9C5B87"` 取源图底部主色，防启动时导航栏闪白。
+- `androidNavigationBarColor: "#FCA8B3"` 取启动图底部主色，防启动时导航栏闪白。
 - ⚠️ **启动图只在云打包后生效**（官方原文：「启动界面设置需提交云端打包后才能生效」）。
   本地运行与 `npm run build:app` 都看不到效果，验证必须走**云打包 APK + 真机冷启动**。
+  真机验收点：①无 1px 黑边 ②品牌不变形 ③品牌居中 ④底色与设计稿一致。
+  若出现黑边 → 云打包把文件改名成了 `splash.png`，改回 `.9.png` 命名即可。
+- 九宫格版对应设计交付包的**方案 B**（渐变底 + 居中锁定图，**不含底部插画**）；
+  含插画的整屏图属方案 A，只能靠 JS 层自绘启动页（cover 裁切）落地。
 
 ### 页面结构
 
-- `src/pages.json` **不声明原生 tabBar**，底部导航由页面内 `<TabBar>` 自绘，切换走 `switchTabPage()`。
-- **新页面必须用 `<PageLayout>` 包裹**。`LoginModal` / `PrivacyPopup` / `DisclaimerPopup` / `NotificationPromptModal` 由 `PageLayout` 挂载，不在 `App.vue` 的 template 里。
+- `src/pages.json` **声明原生 tabBar**（4 个 tab：演出 / 偶像 / 订阅 / Me），
+  图标是 `src/static/icons/tabbar/*.png`（原生只认位图，SVG 不渲染）。
+  - 原生 tabBar 由**原生层**渲染：底层引擎在 JS 初始化前就渲染好，
+    且 tab 页展现过一次后**保留在内存**，再次切换只触发 `onShow` 不再触发 `onLoad`
+    —— 不销毁重建 webview，这是「切 tab 卡顿」的根治办法。
+  - 跳 tab 页**只能**用 `uni.switchTab`（封装在 `src/utils/pages.ts` 的
+    `switchTabPage()`）。`navigateTo` / `redirectTo` 到 tab 页会直接报错
+    「can not navigateTo a tabbar page」；`reLaunch` 能跳但会清空页面栈并重建
+    tab 页，把保活优势全丢掉。
+  - `switchTab` 的 url **不能带参数**（query 会被静默裁掉），`switchTabPage()`
+    已统一剥掉。
+  - **原生 tabBar 的高度不在页面视口里** —— 内容区止于 tabBar 上沿，
+    `getWindowInfo().windowHeight` 已经减掉了它。
+    所以页面**不需要**加 tabBar 高度的底部 padding（除非给 tabBar 配 `blurEffect`，
+    那会进入 cover 模式，此时才需要自己垫）。
+  - 非 tabBar 页（`navigateTo` 上去的二级页）**不显示** tabBar。
+  - 图标由 `scripts/gen-tabbar-icons.mjs` 从 SVG 生成（改 SVG 造型后需重跑）：
+    ```bash
+    npm i @resvg/resvg-js --no-save
+    node scripts/gen-tabbar-icons.mjs
+    ```
+    产物已入库，正常开发不需要跑。
+- **新页面必须用 `<PageLayout>` 包裹**。`LoginModal` / `PrivacyPopup` / `NotificationPromptModal` 由 `PageLayout` 挂载，不在 `App.vue` 的 template 里。
 - 分包：`pages/event`、`pages/place`、`pages/search`、`pages/agreement`、`pages/admin`。
 
 ### 样式红线
@@ -282,15 +440,18 @@ VITE_API_BASE_URL=https://api.idoltrail.com/api/v1   # .env.dev：当前**也指
 | 字段 | `.env.dev` | `.env.prod` | 说明 |
 |------|-----------|------------|------|
 | `VITE_PUSH_ENABLED` | `true` | `true` | uni-push 2.0 总开关；关掉则只剩应用内通知 |
-| `VITE_DONATE_ENABLED` | `true` | `false` | 捐赠入口总闸，关闭时入口整个隐藏 |
+| `VITE_DONATE_ENABLED` | `false` | `false` | 捐赠入口总闸，关闭时入口整个隐藏。**支付通道未接入前两个环境都关**（dev 也关 —— 内测包同样不能给用户看一个点不动的入口）；接入并验收后再改 `true` |
 | `VITE_DONATE_IOS_ENABLED` | `false` | `false` | iOS 需 StoreKit IAP，默认关 |
-| `VITE_DONATE_NATIVE_READY` | `false` | `false` | Android 原生支付，后端对账接口未落地前必须关 |
+| `VITE_DONATE_NATIVE_READY` | `false` | `false` | Android 微信 App 支付；`wx_app` 配置、`Payment` 模块和真机验收完成前必须关 |
 | `VITE_ADMIN_ENABLED` | `false` | `false` | 内置管理后台入口，生产构建再被 `checkAdminGate()` 按死一次 |
 | `VITE_APPLE_LOGIN_ENABLED` | `false` | `false` | Apple 登录入口，默认关（见「一键登录」章节的启用条件） |
 
-> ⚠️ `.env.dev` 的 `VITE_DONATE_ENABLED=true` 只在 `VITE_DONATE_NATIVE_READY=true` 时才有意义：
-> 后者关着时（当前状态，后端对账接口未落地）Android 端进 donate 页会看到「通道未开通」，
-> 属于开发期已知状态，**不要**据此以为捐赠链路已通。
+> ⚠️ 捐赠入口当前**完全关闭**（`VITE_DONATE_ENABLED=false`，dev/prod 都是）。
+> 开关机制保留在 `src/utils/env.ts` 的 `DONATE_ENABLED`，个人中心的赞助 banner
+> 受它控制（`pages/profile/index.vue`）—— 支付链路接入并真机验收通过后，
+> 把该开关改回 `true` 即可恢复入口，**不要**去删 banner 或改页面结构。
+> `pages/profile/donate.vue` 页面本身也有三重降级（总闸 / iOS 开关 / Android 开关），
+> 即使有人直接输 URL 也只会看到「通道暂未开放」而不会误下单。
 
 npm scripts 已带 `--mode=dev` / `--mode=prod`。**HBuilderX GUI 的运行/发行不经过 CLI**，
 它写死用 `development` / `production` 这两个 mode，因此 `vite.config.ts` 里的
@@ -378,6 +539,50 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
   **后端没部署前该按钮会失败并回滚**（不会丢数据）。发布顺序见
   **[`docs/message-push.md`](docs/message-push.md)**。
 
+## 埋点（自研轻量 SDK，不引第三方分析 SDK）
+
+链路：`src/utils/analytics.ts` → `src/api/analytics.ts` → `POST /api/v1/analytics/events`
+→ 后端 `analytics_events` 表 → admin-web「数据埋点」看板（`/analytics`）。
+
+### 为什么自研
+
+- **隐私合规**：国内应用商店要求「同意隐私政策前不得采集任何数据」。
+  第三方 SDK 常在初始化时就上报设备信息，我们没法卡住它的开关；
+  自研能对「同意之前一个字节都不上报」给出确定性保证。
+- **离线补报**：弱网 / 进程被杀时事件留在本地队列，下次启动再送。
+
+### 硬约束（改代码前先读）
+
+| 约束 | 原因 |
+|------|------|
+| **同意前不落盘、不上报** | 同意前只允许 `app_launch` / `privacy_consent` 暂存在**内存**，其余事件直接丢弃 |
+| **事件名白名单双写** | App 端 `src/constants/analytics.ts` 与后端 `internal/model/analytics_event.go` 的 `AnalyticsEventTypes` 必须一一对应；后端是权威，不在白名单的事件被静默丢弃 |
+| **props 只放业务 id 与枚举** | 禁止放手机号、昵称、坐标、完整 IP、画像标签；搜索词只记长度与命中数，不记原文 |
+| **上报走统一请求层** | 必须带 `silent: true` + `skipAuthRedirect: true`：埋点失败不弹 toast，token 失效也**不能**弹强制登录框（未登录是常态） |
+| **禁止 `await import()`** | App 平台打包要求单文件（`output.format = iife`），动态 import 会触发代码分割，构建直接失败：`UMD and IIFE output formats are not supported for code-splitting builds` |
+| **耗时上报用注入式** | `utils/request.ts` ↔ `utils/analytics.ts` 用 `setLatencyReporter()` 注入连接，静态 import 会成环 |
+| **上报路径排除自身** | `request.ts` 里 `/analytics/events` 与 `/auth/refresh` 不计耗时，否则自我放大 |
+
+### 事件清单（当前 21 个）
+
+启动与合规：`app_launch`、`privacy_consent`、`session_end`；
+首页：`home_view`、`home_refresh`、`region_switch`、`sort_change`、`category_select`；
+内容消费：`list_view`、`event_card_click`、`event_detail_view`、`share_click`、`agenda_add`；
+转化：`subscribe_click`、`search_submit`、`search_result_click`、`login_result`；
+其它：`city_locate`、`city_select`、`notification_click`、`api_latency`。
+
+### 活跃口径
+
+用**去重 session_id**，不用去重 user_id：未登录用户没有账号，
+按用户算会把首启未登录的流量整个漏掉（那正是最需要观测的一段）。
+
+### 发布顺序
+
+1. **先部署后端**（`migrations/0073_create_analytics_events` 由 `pkg/migrator` 启动时自动执行，
+   `analytics_events` 表 + `/api/v1/analytics/events` + `/admin/analytics/*` 一并上线）；
+2. 再部署 admin-web（看板依赖后端接口，后端没上看板会 404）；
+3. 最后发 App 包（App 端上报失败会静默重试，不影响主流程，早发晚发都不会丢数据）。
+
 ## 依赖版本锁定
 
 本项目的 Vue 版本**必须精确锁定**，不能用 `^`：
@@ -453,10 +658,23 @@ wsl.exe -e bash -lc "cd '/mnt/c/Users/trunk/Desktop/shimmer-star/idoltrail/idolt
 `GOTOOLCHAIN=auto` 会按 `go.mod`（go 1.26.1）自动下载 toolchain，WSL 自带的 1.22.2 不用管。
 完整说明与坑见服务端仓 `CLAUDE.md` 的「本地工具链：Go 编译验证走 WSL」一节。
 
+### 真机测试走 Mobilerun CLI
+
+本机装了 **Mobilerun CLI v0.7.4**（`C:\Users\trunk\.local\bin\mobilerun.exe`，Python/uv），
+可以驱动**本机 USB 连着的 Android 真机**（serial `HMEUPN8XLJT8XWXS`，Android 14 / 1080×2460）。
+
+- 改完代码 → 推设备 → 上手点一遍 → 和服务端对账的完整流程、命令速查、
+  24 个功能点的测试步骤与服务端核对点，全部在
+  **[`docs/mobilerun-device-test.md`](docs/mobilerun-device-test.md)**。
+- 三个必记的坑：**控制台必须先设 `PYTHONUTF8=1`（否则 GBK 崩）**、
+  **测试期间必须 `adb shell svc power stayon true`（息屏后所有点击静默失效）**、
+  **测之前先 grep 设备上的 app-service.js 确认推的是最新代码**。
+
 ## 构建与发布
 
-CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试，打 `v*.*.*` tag 产出
-可交付的 App 资源包 artifact（APK/IPA 仍由 DCloud 云打包出，CI 不碰服务器、不需要任何 Secrets）。
+CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：普通推送只构建与测试；`v*.*.*` tag
+调用 HBuilderX CLI 云打包 Android APK，转存 OSS 后同步后台并创建 GitHub Release。
+发布凭据只放在 GitHub `production` Environment，普通 CI 不读取。
 
 ## 管理后台
 
@@ -472,9 +690,10 @@ CI 与发版流程见 **[DEPLOY.md](./DEPLOY.md)**：推送触发构建与测试
 1. `src/manifest.json` 的 `appid` 已是真实 DCloud AppID `__UNI__F1F9279`（已与 DCloud 后台核对），**不要再改成占位符**。
 2. `src/pages/admin/` 未从包内移除（`pages.json` 无法按 mode 条件编译）。已通过构建期开关封死入口，但要彻底消除需后端对 `/admin/*` 加来源校验，并把后台迁到独立 Web 控制台。
 3. 隐私政策正文已与 App 实际采集数据对齐（不再声明微信 openid / unionid），上架前仍需人工复核一遍 `privacyDescription` 与实际 SDK 采集行为是否一致。
-4. Android 原生支付的**客户端**已实现（`src/utils/nativePay.ts` 走 `uni.requestPayment`），
-   缺的是后端 `/donations/wx-app`、`/donations/alipay` 的下单与对账接口，
-   因此 `VITE_DONATE_NATIVE_READY` 保持 `false`。
+4. Android 微信 App 支付的客户端与服务端链路已实现（`POST /donations` 使用 `channel=wx_app`，
+   客户端 `requestWxAppPay` 调起微信，服务端回调入账并提供订单查询）。支付宝 `alipay_app` 尚未开放服务端下单。
+   当前 `VITE_DONATE_NATIVE_READY` 保持 `false`，需先补 `Payment` 模块，并完成微信移动应用 AppID、
+   包名与正式签名登记、商户号绑定、支付证书配置及真机验收。
 5. 一键登录依赖 3 件外部条件，缺一则入口静默消失（不会崩，但功能等于没上线）：
    DCloud 后台已为 `__UNI__F1F9279` 开通一键登录服务、云函数 `univerify-exchange`
    已上传并 URL 化、后端已填 `UNIVERIFY_*`。真机验证必须用**含 OAuth 模块的基座或云打包**，

@@ -33,7 +33,7 @@ export interface PublicUserStats {
    * 可选：后端未升级到含该字段的版本时不会返回，页面显示「—」。
    */
   adoption_rate?: number
-  /** 累计星币 */
+  /** 累计贡献值（星币：情报收录记分，每条 10 分） */
   star_coins: number
   /** 总榜名次；0 = 未上榜 */
   rank: number

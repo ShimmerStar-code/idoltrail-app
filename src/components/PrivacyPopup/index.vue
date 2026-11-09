@@ -40,6 +40,8 @@ import { useUserStore } from '@/stores/user'
 import { savePrivacyConsent, clearPrivacyConsent, syncNativePrivacyAgree, syncNativePrivacyDisagree } from '@/utils/privacy'
 import { getEffectiveAgreementVersion, getEffectiveVersion } from '@/utils/agreementContent'
 import { authApi } from '@/api/auth'
+import { track } from '@/utils/analytics'
+import { ANALYTICS_EVENTS } from '@/constants/analytics'
 
 const userStore = useUserStore()
 const { showPrivacyPopup, missingAgreements, globalOverlaySuspended, privacyPopupReason } = storeToRefs(userStore)
@@ -104,6 +106,10 @@ async function onAgree() {
     userStore.setAgreementOK()
   }
   userStore.closePrivacyPopup()
+  // 埋点：用户**本次**点同意（这是唯一能统计「同意率」的地方）。
+  // 记在 savePrivacyConsent() 之后 —— SDK 内部以「已同意」为门控，
+  // 此刻才有资格真正上报（同意前的事件只在内存里暂存）。
+  track(ANALYTICS_EVENTS.PRIVACY_CONSENT, { version: currentVersion.value })
 }
 
 /**

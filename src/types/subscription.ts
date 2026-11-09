@@ -3,7 +3,7 @@
 
 import type { Artist } from './artist'
 
-export type SubTargetType = 'artist' | 'city' | 'event'
+export type SubTargetType = 'artist' | 'city' | 'event' | 'venue'
 
 /** 订阅/退订统一返回 */
 export interface SubscribeResult {
@@ -42,6 +42,27 @@ export interface CityCardVO {
   subscribed_at: string
 }
 
+/** 场馆主数据（来自 places 表） */
+export interface VenuePlace {
+  id: string
+  name: string
+  country: string
+  city_id: string
+  type: string
+  address: string
+  latitude: number
+  longitude: number
+  /** 该场馆关联的活动数（列表接口按它排序） */
+  event_count?: number
+}
+
+/** 场馆订阅卡（订阅页「场馆订阅」区） */
+export interface VenueCardVO {
+  place: VenuePlace
+  event_count: number
+  subscribed_at: string
+}
+
 /** 活动卡片的精简结构 */
 export interface EventBrief {
   id: number
@@ -53,6 +74,13 @@ export interface EventBrief {
   genre: string
   type: string   // 活动类型：event_type_ref.type_code（CONCERT / FESTIVAL / FAN_MEETING / ANIME_EXPO / CONCERT_HALL）
   status?: string // 存储状态 PUBLISHED/ENDED/CANCELLED...（卡片按其 + end_date 派生“已结束”）
+  /** 该活动总场次数（后端下发，不受列表筛选影响）。缺失时前端退回 sessions.length */
+  session_count?: number
+  /** 覆盖城市数，>1 表示巡演 */
+  city_count?: number
+  /** 最早/最晚场次日期（YYYY-MM-DD） */
+  first_event_date?: string
+  last_event_date?: string
   artist?: {
     id: string
     name: string

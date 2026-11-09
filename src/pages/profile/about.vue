@@ -27,7 +27,7 @@
             >idoltrail聚焦于跟踪偶像全球活动信息，帮您掌握偶像全球动态，欢迎您的加入！
           </text>
           <view class="version-row">
-            <text class="section-extra">当前版本：v{{ APP_VERSION_NAME }}</text>
+            <text class="section-extra">当前版本：v{{ currentVersion || APP_VERSION_NAME }}</text>
             <text class="version-tag">{{ APP_VERSION_LABEL }}</text>
           </view>
           <view class="check-update-row">
@@ -50,6 +50,20 @@
             <text class="link-desc">{{ agreementVersion }}</text>
             <uni-icons type="right" size="8" color="#999" />
           </view>
+        </view>
+
+        <view class="divider" />
+
+        <!-- 数据说明与侵权举报：原为启动弹窗，现常驻在此 -->
+        <view class="section-card">
+          <text class="section-title">数据说明与侵权举报</text>
+          <text class="section-body">{{ DISCLAIMER_FULL }}</text>
+          <view class="report-row" @tap="copyReportEmail">
+            <text class="report-label">举报邮箱</text>
+            <text class="report-value">{{ REPORT_EMAIL }}</text>
+            <text class="report-hint">复制</text>
+          </view>
+          <text class="section-extra">活动信息部分来自网络与用户投稿，请以主办方官方公告为准。</text>
         </view>
 
         <view class="divider" />
@@ -79,9 +93,10 @@ import { onShow } from "@dcloudio/uni-app";
 import PageLayout from "@/components/PageLayout/index.vue";
 import { getStatusBarHeight } from "@/utils/system";
 import { APP_COMPANY, APP_VERSION_LABEL, APP_VERSION_NAME, CONTACT_EMAIL, ICP_FILING_NO } from "@/constants/appInfo";
+import { DISCLAIMER_FULL, REPORT_EMAIL } from "@/constants/disclaimer";
 import { getEffectiveVersion } from "@/utils/agreementContent";
-import { appVersionApi, isNewerVersion } from "@/api/appVersion";
-import { openExternalUrl } from "@/utils/openExternal";
+import { checkAppUpdate } from "@/utils/appUpdate";
+import { getAppVersion } from "@/utils/device";
 
 // 协议版本取**当前生效版本**（服务端版本比包内新时以服务端为准），
 // 不用包内常量 —— 否则 App 已经拉到新政策，这里还显示旧版本号。
@@ -95,6 +110,9 @@ const sending = ref(false);
 
 onMounted(() => {
   statusBarHeight.value = getStatusBarHeight();
+  // 运行时版本（plus.runtime.version），比包内常量准：
+  // 包内常量是**发版那一刻**的快照，用户装的包可能比它新或旧。
+  currentVersion.value = getAppVersion();
 });
 
 onShow(() => {
@@ -113,11 +131,29 @@ function copyEmail() {
   });
 }
 
+/** 复制侵权举报邮箱（与对外联系方式同一个） */
+function copyReportEmail() {
+  uni.setClipboardData({
+    data: REPORT_EMAIL,
+    success: () => uni.showToast({ title: "举报邮箱已复制", icon: "none" }),
+  });
+}
+
 /**
  * 检查更新。
  *
- * 版本信息来自服务端（后台「App 版本与下载」录入的当前版本），
- * 而不是包内常量 —— 包内常量是发版那一刻的快照，改不了。
+ * 走 App 内的统一升级能力（uni-upgrade-center-app 插件 + 自研后端版本表）：
+ *   后台「App 版本与下载」 → GET /public/app-versions/latest
+ *   → utils/appUpdate.ts 组装包信息 → 插件升级页（App 内下载 + 原生安装器唤起）
+ *
+ * 为什么不再跳系统浏览器下载（改造前是 openExternalUrl(download_url)）：
+ *   · 跳浏览器下载 APK，用户要自己找下载文件、再手动点安装，
+ *     中途还要处理"允许安装未知来源"的授权弹窗 —— 一步一卡；
+ *   · 插件的升级页在 App 内完成下载（带进度）、校验、唤起安装器，
+ *     强制升级还能锁住关闭按钮。
+ *
+ * 版本信息来自服务端（后台录入的当前版本），而不是包内常量 ——
+ * 包内常量是发版那一刻的快照，改不了。
  *
  * 提示就地展示在页面上，不用 uni.showToast：
  * 这个页面没有 mask 遮挡，toast 也够用，但「检查中…」这种中间态
@@ -125,40 +161,33 @@ function copyEmail() {
  */
 const checking = ref(false);
 const updateHint = ref("");
+/** 实际安装的版本（运行时读，比包内常量准 —— 包内常量是发版快照） */
+const currentVersion = ref("");
 
 async function checkUpdate() {
   if (checking.value) return;
   checking.value = true;
   updateHint.value = "";
   try {
-    const info = await appVersionApi.fetchLatest("android");
-    if (!info || !info.version_name) {
-      updateHint.value = "暂未获取到版本信息";
-      return;
+    // manual: true —— 用户主动点的，同一版本之前提示过也要再提示一次。
+    // silent: true —— 失败信息统一在这里展示，避免内部弹一次这里再弹一次。
+    const outcome = await checkAppUpdate({ manual: true, silent: true });
+    switch (outcome.status) {
+      case "up_to_date":
+      case "skipped":
+        updateHint.value = "已是最新版本";
+        break;
+      case "unsupported_platform":
+        // iOS 走 App Store / TestFlight 分发，App 内没有可直装的整包
+        updateHint.value = "请前往应用商店更新";
+        break;
+      case "prompted":
+        // 升级页已打开
+        break;
+      case "failed":
+        updateHint.value = "检查失败，请稍后再试";
+        break;
     }
-    if (!isNewerVersion(info.version_name, APP_VERSION_NAME)) {
-      updateHint.value = "已是最新版本";
-      return;
-    }
-    const size = info.file_size
-      ? `（${(info.file_size / 1024 / 1024).toFixed(1)} MB）`
-      : "";
-    const notes = info.notes ? `\n${info.notes}` : "";
-    uni.showModal({
-      title: `发现新版本 v${info.version_name}${size}`,
-      content: `${info.notes || "有新的版本可以下载。"}${notes}`,
-      confirmText: "去下载",
-      cancelText: "稍后",
-      success: (res) => {
-        if (res.confirm && info.download_url) {
-          // 交给系统浏览器 / 下载器处理安装包
-          openExternalUrl(info.download_url, "下载地址");
-        }
-      },
-    });
-    updateHint.value = `有新版本 v${info.version_name}`;
-  } catch (e) {
-    updateHint.value = "检查失败，请稍后再试";
   } finally {
     checking.value = false;
   }
@@ -394,5 +423,27 @@ function sendFeedback() {
 .icp-text {
   font-size: 26rpx;
   color: rgba(221, 221, 221, 1);
+}
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 16rpx 24rpx;
+  border-radius: 20rpx;
+  background: rgba(245, 245, 245, 1);
+}
+.report-label {
+  font-size: 24rpx;
+  color: rgba(153, 153, 153, 1);
+}
+.report-value {
+  flex: 1;
+  font-size: 25rpx;
+  color: rgba(51, 51, 51, 1);
+}
+.report-hint {
+  font-size: 22rpx;
+  color: rgba(254, 165, 0, 1);
 }
 </style>

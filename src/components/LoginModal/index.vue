@@ -315,8 +315,6 @@ async function onOneKeyLogin() {
       // 否则用户会以为登录卡住了。同时停止自动重试 ——
       // 否则「关闭 → 自动弹出 → 再关闭」会变成死循环。
       oneKeyCancelled.value = true
-      // 取消是正常分支，用 info 级别，别在日志里刷红误导排查
-      console.info('[LoginModal] oneKeyLogin cancelled by user')
     } else if (code === ERRNO_ONE_KEY_UNAVAILABLE) {
       // 服务端未开通 / 该设备不支持：永久禁用能力，后续都走短信。
       // 置位在 utils/univerify 的模块级状态里，只写 oneKeyAvailable 是不够的 ——

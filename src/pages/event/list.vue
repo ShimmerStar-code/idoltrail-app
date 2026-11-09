@@ -48,7 +48,7 @@
           @update:selectedGenre="selectedGenre = $event"
           @update:selectedStatus="selectedStatus = $event"
           @update:selectedDate="selectedDate = $event"
-          @update:calendarExpanded="showCalendar = $event"
+          @update:calendarExpanded="onCalendarExpanded"
           @open-city="cityPickerVisible = true"
         />
 
@@ -58,9 +58,26 @@
           :yearMonth="calendarMonth"
           :selectedDate="selectedDate"
           :dailyCounts="calCounts"
+          :collapsed="calCollapsed"
           @update:yearMonth="calendarMonth = $event"
-          @update:selectedDate="selectedDate = $event"
+          @update:selectedDate="onCalendarPickDate"
+          @update:collapsed="calCollapsed = $event"
         />
+
+        <!-- 排序：默认「即将开始」。
+             此前列表只有一种口径（后端 created_at DESC = 最近录入），
+             用户想看「最近有什么演出」时只能自己一条条翻。 -->
+        <view class="sort-bar">
+          <view
+            v-for="o in sortOptions"
+            :key="o.code"
+            class="sort-item"
+            :class="{ 'sort-item--active': selectedSort === o.code }"
+            @click="onSortChange(o.code)"
+          >
+            <text class="sort-text">{{ o.label }}</text>
+          </view>
+        </view>
       </view>
 
       <!-- 活动列表(scroll-view + 窗口化:只渲染视口附近的卡片) -->
@@ -69,6 +86,9 @@
         class="list-scroll"
         :style="{ height: scrollHeight + 'px' }"
         :scroll-into-view="scrollAnchor"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        @refresherrefresh="onRefresh"
         @scroll="onVirtualScroll"
         @scrolltolower="handleLoadMore"
       >
@@ -93,7 +113,19 @@
           <view v-if="!visibleEvents.length" class="empty">
             <text class="empty-icon">⏳</text>
             <text class="empty-text">暂无符合条件的活动</text>
-            <text class="empty-hint">试试调整筛选条件</text>
+            <text class="empty-hint">试试下面这些</text>
+            <view class="empty-actions">
+              <view
+                v-if="hasActiveFilter"
+                class="empty-btn empty-btn--primary"
+                @click="resetFilters"
+              >
+                <text class="empty-btn__text">清空筛选条件</text>
+              </view>
+              <view class="empty-btn" @click="goSubmit">
+                <text class="empty-btn__text">上传情报</text>
+              </view>
+            </view>
           </view>
           <view v-if="visibleEvents.length" class="list-footer">
             <text v-if="store.loadingMore" class="list-footer-text">加载中...</text>
@@ -130,22 +162,109 @@ import EventFilters from "@/components/EventFilters/index.vue"
 import EventCalendar from "@/components/EventCalendar/index.vue"
 import CityPicker from "@/components/CityPicker/index.vue"
 import { useVirtualList } from "@/composables/useVirtualList"
-import { cityEn } from "@/constants/cities"
 import { getGenreByCode } from "@/constants/genres"
 import { effectiveEventStatus, EVENT_TYPE_SLUG_TO_CODE } from "@/constants/eventMeta"
-import { eventApi } from "@/api/event"
+import { eventApi, EVENT_SORT_OPTIONS, type EventSort } from "@/api/event"
+import { track } from "@/utils/analytics"
+import { ANALYTICS_EVENTS } from "@/constants/analytics"
+import { cityQueryValue, resolveCityCodes } from "@/utils/cityFilter"
 const store = useEventStore()
 const statusBarHeight = ref(20)
 
 // ── 筛选条件（全部受控，watch 自动触发 fetchList）──
-// selectedCity 存中文（"北京"），fetchList 内部经 cityEn() 转英文后传后端
+// selectedCity 存中文（"北京"），用于展示；
+// selectedCityCodes 存该城市在库内的**全部英文写法**，用于请求参数。
+//
+// 为什么不能拿中文名反查英文（原来用 cityEn()）：
+//   event_sessions.city 存的是录入原值，同一城市有多种写法
+//   （香港 = "Hong Kong" + "Xianggang"、西安 = "Xi'an" + "xian"），
+//   而包内静态表的"规范码"恰好与库内写法对不上
+//   （Xian→0 而 Xi'an→38、HongKong→0 而 Xianggang→18、Macau→0 而 Aomen→15）。
+//   所以写法集合必须问后端要（/city/normalize），见 utils/cityFilter.ts。
 const selectedGenre  = ref("")             // GENRES.code；空 = 全部
 const selectedCity   = ref("")             // 中文城市名；空 = 全国
+const selectedCityCodes = ref<string[]>([]) // 该城市在库内的全部英文写法
 const selectedType   = ref("")             // event_type code；空 = 全部
 const selectedStatus = ref("PUBLISHED")    // 默认只显示已发布
 const selectedDate   = ref("")             // YYYY-MM-DD；空 = 不按日期过滤
 const showCalendar   = ref(false)
+/**
+ * 日历折叠态：完整日历 6 行占掉约 300px，列表可视区只剩两三张卡。
+ * 折叠后只留一行（月份 + 已选日期），选完日期自动折叠，把空间立刻还给列表。
+ */
+const calCollapsed  = ref(false)
 const calendarMonth  = ref("")             // YYYY-MM
+
+// ── 排序 ──
+// 默认「即将开始」（按最早场次日期升序）。
+// 后端此前只有 created_at DESC（最近录入）一种口径，
+// 用户装的是「日程类」App，首屏却按录入时间排 —— 临近开演的活动沉在最后。
+const selectedSort   = ref<EventSort>("date_ASC")
+const sortOptions    = EVENT_SORT_OPTIONS
+const refreshing     = ref(false)
+
+/** 是否存在除「状态」以外的筛选条件（空态据此决定要不要给「清空筛选」出口） */
+const hasActiveFilter = computed(
+  () =>
+    !!selectedCity.value ||
+    !!selectedType.value ||
+    !!selectedGenre.value ||
+    !!selectedDate.value,
+)
+
+function onSortChange(code: EventSort) {
+  if (selectedSort.value === code) return
+  // 只改值：下面的 watch 会带着新排序重拉一次
+  // （手动再调 fetchList 会与 watch 的那次并发，命中 in-flight 锁虽然不会重复发请求，
+  //   但多一次 loading 抖动，没有意义）。
+  selectedSort.value = code
+}
+
+/** 空态出口：清空筛选条件（状态保留「售票中」） */
+function resetFilters() {
+  selectedCity.value = ""
+  selectedCityCodes.value = []
+  selectedType.value = ""
+  selectedGenre.value = ""
+  selectedDate.value = ""
+  showCalendar.value = false
+}
+
+/** 空态出口：众包补录 */
+function goSubmit() {
+  uni.navigateTo({ url: "/pages/event/submit" })
+}
+
+/**
+ * 顶部「日历」胶囊：完全展开 / 完全收起日历。
+ *
+ * 胶囊是「要不要日历」的开关，所以从关到开时给回完整日历；
+ * 只留一行的折叠态由日历内部的收起按钮控制（那是「日历本身收起来」）。
+ */
+function onCalendarExpanded(open: boolean) {
+  showCalendar.value = open
+  if (open) calCollapsed.value = false
+}
+
+/**
+ * 日历里点某一天：设好日期后顺手把日历折成一行。
+ * 不折的话完整日历一直占着近 300px，列表只剩两三张卡 —— 用户要的就是这个空间。
+ */
+function onCalendarPickDate(date: string) {
+  selectedDate.value = date
+  if (date) calCollapsed.value = true
+}
+
+/** 下拉刷新：绕过 5 分钟响应缓存强制重拉 */
+async function onRefresh() {
+  refreshing.value = true
+  try {
+    store.invalidateListCache()
+    await fetchList()
+  } finally {
+    refreshing.value = false
+  }
+}
 
 // ── UI 状态 ──
 const cityPickerVisible  = ref(false)
@@ -177,7 +296,7 @@ onLoad((options) => {
   // 注意：必须放在 onLoad 内、URL 参数已应用之后，避免 onLoad 里的
   // ref 赋值触发额外的 watch 回调，与末尾的 fetchList() 重复请求。
   watch(
-    [selectedGenre, selectedCity, selectedType, selectedStatus, selectedDate],
+    [selectedGenre, selectedCity, selectedCityCodes, selectedType, selectedStatus, selectedDate, selectedSort],
     () => fetchList(),
   )
 
@@ -299,6 +418,10 @@ function measureListHeight() {
 watch(showCalendar, () => {
   void nextTick(() => measureListHeight());
 });
+// 日历在「完整」与「折成一行」之间切换同样改变头部高度 → 重测
+watch(calCollapsed, () => {
+  void nextTick(() => measureListHeight());
+});
 // 筛选变化可能让胶囊换行 → 重测
 watch(
   [selectedCity, selectedType, selectedGenre, selectedStatus, selectedDate],
@@ -314,6 +437,13 @@ onMounted(() => {
 // 从详情页返回、或在页面上跨过零点后回到前台：重判一次过期，剔除新过期的条目
 onShow(() => {
   nowTick.value++;
+  // 埋点：列表页曝光（带上当前筛选口径，便于看哪种筛选有产出）
+  track(ANALYTICS_EVENTS.LIST_VIEW, {
+    genre: selectedGenre.value || "",
+    type: selectedType.value || "",
+    city: selectedCity.value || "",
+    sort: selectedSort.value || "",
+  });
 });
 
 // ── 日历场数：改用后端“整月每天场数”接口，与当前列表解耦 ──
@@ -339,8 +469,9 @@ async function fetchCalendarCounts() {
     if (selectedGenre.value)  params.genre  = selectedGenre.value
     if (selectedType.value)   params.type   = selectedType.value
     if (selectedCity.value) {
-      const en = cityEn(selectedCity.value) // 中文城市名 → 英文（与列表一致）
-      if (en) params.city = en
+      // 该城市在库内的全部写法（逗号分隔多值）
+      const city = cityQueryValue(selectedCityCodes.value);
+      if (city) params.city = city;
     }
     const res = await eventApi.calendarCounts(params)
     if (seq === calSeq) calCounts.value = res?.counts ?? {}
@@ -356,11 +487,12 @@ async function fetchList() {
   if (selectedGenre.value)  params.genre  = selectedGenre.value
   if (selectedType.value)   params.type   = selectedType.value
   if (selectedCity.value) {
-    // selectedCity 存中文，转英文传给后端（与 DB event_sessions.city 精确匹配）
-    const en = cityEn(selectedCity.value)
-    if (en) params.city = en
+    // 该城市在库内的全部写法（逗号分隔多值）
+    const city = cityQueryValue(selectedCityCodes.value);
+    if (city) params.city = city;
   }
   if (selectedDate.value) params.date = selectedDate.value
+  params.order = selectedSort.value
   // 换筛选 = 换一份列表，窗口化状态与滚动位置都必须归零
   resetVirtual()
   scrollToTop()
@@ -388,10 +520,11 @@ function buildFilterParams(): Record<string, any> {
   if (selectedGenre.value)  params.genre  = selectedGenre.value
   if (selectedType.value)   params.type   = selectedType.value
   if (selectedCity.value) {
-    const en = cityEn(selectedCity.value)
-    if (en) params.city = en
+    const city = cityQueryValue(selectedCityCodes.value);
+    if (city) params.city = city;
   }
   if (selectedDate.value) params.date = selectedDate.value
+  params.order = selectedSort.value
   return params
 }
 
@@ -435,11 +568,15 @@ async function fetchAvailableCities() {
     if (selectedType.value)   params.type   = selectedType.value
     const res = await eventApi.listCities(params)
     availableCities.value = res?.list ?? []
-    // 若当前已选城市在新条件下已无活动，自动清空选择
+    // 若当前已选城市在新条件下已无活动，自动清空选择。
+    // 判断依据是「库内写法集合」—— 任何一个写法还在就保留：
+    // 同城可能有多种写法（香港 = "Hong Kong" + "Xianggang"），
+    // 只看其中一个会误清（另一个还有活动）。
     if (selectedCity.value) {
-      const en = cityEn(selectedCity.value)
-      if (en && !availableCities.value.includes(en)) {
-        selectedCity.value = ""
+      const codes = selectedCityCodes.value;
+      if (codes.length && !codes.some((c) => availableCities.value.includes(c))) {
+        selectedCity.value = "";
+        selectedCityCodes.value = [];
       }
     }
   } catch {
@@ -448,9 +585,15 @@ async function fetchAvailableCities() {
   }
 }
 
-function onCitySelected(city: { name: string; id: string }) {
-  // CityPicker 传回 { name: 中文城市名, id: region.id }，此处只需城市名做筛选
-  selectedCity.value = city.name
+async function onCitySelected(city: { name: string; id: string; code: string }) {
+  // CityPicker 传回 { name: 中文城市名, id: region.id, code: 英文写法 }
+  //
+  // 先解析库内写法、再改 selectedCity —— 顺序不能反：
+  // watch(selectedCity) 会触发 fetchList，codes 还没就位就会用旧写法发一次请求。
+  // （两个 ref 都在同一 tick 内赋值，watcher 只回调一次。）
+  const codes = await resolveCityCodes(city.code || city.name, city.name);
+  selectedCityCodes.value = codes;
+  selectedCity.value = city.name;
   nextTick(() => { cityPickerVisible.value = false })
 }
 
@@ -459,7 +602,8 @@ function goBack() {
 }
 
 function toDetail(id: number) {
-  uni.navigateTo({ url: `/pages/event/detail?id=${id}` })
+  track(ANALYTICS_EVENTS.EVENT_CARD_CLICK, { event_id: id, source: "list" })
+  uni.navigateTo({ url: `/pages/event/detail?id=${id}&source=list` })
 }
 </script>
 
@@ -535,6 +679,60 @@ function toDetail(id: number) {
 .empty-hint {
   font-size: 24rpx;
   color: #999;
+}
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20rpx;
+  margin-top: 24rpx;
+}
+.empty-btn {
+  height: 76rpx;
+  padding: 0 32rpx;
+  border-radius: 38rpx;
+  background: rgba(245, 245, 245, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.empty-btn--primary {
+  background: rgba(254, 165, 0, 0.12);
+}
+.empty-btn__text {
+  font-size: 26rpx;
+  color: #333;
+}
+.empty-btn--primary .empty-btn__text {
+  color: #8a5600;
+  font-weight: 600;
+}
+
+/* 排序条 */
+.sort-bar {
+  display: flex;
+  gap: 16rpx;
+  padding: 20rpx 30rpx 8rpx;
+}
+.sort-item {
+  height: 60rpx;
+  padding: 0 24rpx;
+  border-radius: 30rpx;
+  background: rgba(245, 245, 245, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sort-item--active {
+  background: rgba(254, 165, 0, 0.12);
+}
+.sort-text {
+  font-size: 24rpx;
+  color: #666;
+}
+.sort-item--active .sort-text {
+  color: #8a5600;
+  font-weight: 600;
 }
 .list-footer {
   text-align: center;

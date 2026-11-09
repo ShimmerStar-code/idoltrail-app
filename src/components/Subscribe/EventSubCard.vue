@@ -19,6 +19,10 @@
           />
         </view>
         <text class="artist-name">{{ vo.event.artist?.name || '—' }}</text>
+        <!-- 场次徽标：多场次（巡演）才显示，单场次标「共 1 场」是噪音 -->
+        <view v-if="sessionBadgeText" class="session-badge">
+          <text class="session-badge-text">{{ sessionBadgeText }}</text>
+        </view>
       </view>
       <view class="head-right">
         <view v-if="vo.is_new" class="new-badge">
@@ -41,11 +45,11 @@
         <view class="chip">
           <uni-icons type="location" size="14" :color="chipIconColor" />
           <!-- event.city 存的是英文（Beijing / HongKong），直接渲染会让中文用户看到英文地名 -->
-          <text class="chip-text">{{ formatCity(vo.event.city) || '—' }}</text>
+          <text class="chip-text">{{ cityText || '—' }}</text>
         </view>
         <view class="chip">
           <uni-icons type="calendar" size="14" :color="chipIconColor" />
-          <text class="chip-text">{{ formatDate(vo.event.start_date) }}</text>
+          <text class="chip-text">{{ dateText }}</text>
         </view>
         <view class="chip">
           <uni-icons type="staff" size="14" :color="chipIconColor" />
@@ -86,6 +90,48 @@ const PALETTE: Record<string, { bg: string; chip: string; title: string; icon: s
 
 const chipIconColor = computed(() => PALETTE[props.vo.theme_color]?.icon || '#333')
 
+/**
+ * 场次数：后端下发，不用 sessions.length
+ * （订阅侧 sessions 是前端伪造的单场，后端只给首场城市）。
+ */
+const sessionCount = computed(() => {
+  const n = props.vo.event.session_count
+  if (typeof n === 'number' && n > 0) return n
+  return 0
+})
+
+/** 多场次才显示徽标 */
+const sessionBadgeText = computed(() =>
+  sessionCount.value > 1 ? `共${sessionCount.value}场` : ''
+)
+
+/**
+ * 巡演显示「城市·N城」（如「北京·23城」），只写「多城」丢了用户最关心的
+ * 「我这边有没有」；单城显示城市名。
+ * city 是后端下发的全量首城（最早那一场），不受列表筛选影响。
+ */
+const cityText = computed(() => {
+  const cityCount = props.vo.event.city_count ?? 0
+  const city = formatCity(props.vo.event.city)
+  if (cityCount > 1) return city ? `${city}·${cityCount}城` : `${cityCount}城`
+  return city
+})
+
+/**
+ * 日期：用后端下发的真实场次日期跨度，
+ * 不用 start_date/end_date（后者由后台回写，可能陈旧）。
+ */
+const dateText = computed(() => {
+  const first = props.vo.event.first_event_date
+  const last = props.vo.event.last_event_date
+  if (!first) return formatDate(props.vo.event.start_date)
+  const s = String(first).slice(0, 10)
+  const e = last ? String(last).slice(0, 10) : ''
+  if (!e || e === s) return s
+  if (s.slice(0, 4) === e.slice(0, 4)) return `${s.slice(5)} ~ ${e.slice(5)}`
+  return `${s} ~ ${e}`
+})
+
 function formatDate(d: string): string {
   if (!d) return '—'
   return d.replace(/-/g, '-').slice(0, 10) // YYYY-MM-DD
@@ -124,6 +170,15 @@ function formatGenre(g: string): string {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .head-right { display: flex; align-items: center; gap: 14rpx; }
+
+/* 场次徽标：多场次（巡演）才出现 */
+.session-badge {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 30rpx;
+  padding: 4rpx 14rpx;
+}
+.session-badge-text { font-size: 20rpx; font-weight: 600; color: #333; }
 
 .new-badge {
   background: #fff; border-radius: 30rpx;

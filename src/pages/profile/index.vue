@@ -34,11 +34,16 @@
                 <text class="tag__text" :style="{ color: tag.color }">{{ tag.label }}</text>
               </view>
             </view>
+            <!--
+              贡献值：只用「星币图标 + 数字」表示，不带文字标签。
+              口径唯一 —— user_profiles.star_coins（情报被收录的记分，每条 10 分）。
+              原先这里并排显示了「星币 N」和「贡献值 M」两个数，
+              但 M 是捐赠累计金额（单位：分），与 N 量纲不同、视觉上无法区分，
+              已在后端 0074 迁移里整列停用，捐赠明细见后台「赞助记录」。
+            -->
             <view v-if="isLoggedIn" class="stats-row">
               <image class="coin-icon" src="/static/icons/star_coin.svg" mode="aspectFit" />
               <text class="stat-value">{{ user?.star_coins ?? 0 }}</text>
-              <text class="stat-label stat-gap">贡献值：</text>
-              <text class="stat-value">{{ user?.contribution ?? 0 }}</text>
             </view>
             <text v-else class="hint">登录后享受完整功能</text>
           </view>
@@ -78,7 +83,6 @@
       <scroll-view
         scroll-y
         class="scroll-body"
-        :style="{ paddingBottom: tabBarHeight + 'px' }"
       >
         <!-- 菜单 -->
         <view class="menu-section">
@@ -99,7 +103,7 @@
         <!-- 赞助 Banner -->
         <!-- 必须受 DONATE_ENABLED 控制。此前这个 banner 是无条件渲染的，
              DONATE_ENABLED 在 src/utils/env.ts 里定义了却全仓无人引用，
-             于是即便支付通道没开通（后端对账接口未落地），
+             于是即便支付通道没开通（支付模块或外部配置未就绪），
              banner 依然恒显示 → 用户点进去必然失败。
              开关关闭时整块隐藏，而不是展示一个点不动的入口。 -->
         <view
@@ -136,8 +140,6 @@
           </view>
         </view>
       </scroll-view>
-
-      <TabBar :current="3" />
     </view>
   </PageLayout>
 </template>
@@ -145,7 +147,6 @@
 <script setup lang="ts">
 import { userApi } from "@/api/user";
 import PageLayout from "@/components/PageLayout/index.vue";
-import TabBar from "@/components/TabBar/index.vue";
 import { useUserStore } from "@/stores/user";
 import { getNavBarMetrics } from "@/utils/system";
 import { getUserAvatarSrc } from "@/utils/avatar";
@@ -154,7 +155,6 @@ import { interestTags } from "@/constants/interests";
 import { onShow } from "@dcloudio/uni-app";
 import { computed, ref } from "vue";
 const statusBarHeight = ref(20);
-const tabBarHeight = ref(80);
 const userStore = useUserStore();
 const user = computed(() => userStore.user);
 const isLoggedIn = computed(() => userStore.isLoggedIn);
@@ -215,13 +215,6 @@ const menuItems = [
     action: () => guardedNav("/pages/profile/messages"),
   },
   {
-    label: "推送设置",
-    icon: "/static/icons/notice_icon.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => guardedNav("/pages/profile/notifications"),
-  },
-  {
     label: "上传情报",
     icon: "/static/icons/submit_icon.svg",
     iconBg: "rgba(0,0,0,0.0)",
@@ -247,38 +240,24 @@ const menuItems = [
     iconColor: "#fff",
     action: () => guardedNav("/pages/profile/homepage"),
   },
+  // 「通用设置」是管理类入口的集合页：账号管理、推送设置、隐私政策、
+  // 用户协议、使用说明、关于我们都在里面。
+  //
+  // 为什么把这几项从一级菜单收进来：一级菜单只留**高频**操作
+  // （消息、上传、榜单、主页），低频的管理/合规类收进二级，
+  // 避免一级列表过长把「上传情报」这类转化入口挤到下面。
+  //
+  // ⚠️ 协议入口虽然下沉了，但「通用设置」页里它们**排在账号管理与推送设置之后、
+  // 使用说明之前**且**直接显示当前协议版本号** —— 合规要求用户能随时找到并
+  // 阅读现行协议，不能让它变成需要「点两下才看得见」的死角
+  // （见 pages/profile/settings.vue）。
   {
-    label: "账号管理",
-    icon: "/static/icons/account_icon.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => guardedNav("/pages/profile/account"),
-  },
-  {
-    label: "通用",
+    label: "通用设置",
     icon: "/static/icons/general.svg",
     iconBg: "rgba(0,0,0,0.0)",
     iconColor: "#fff",
     action: () => nav("/pages/profile/settings"),
   },
-  // 协议入口放在个人中心一级菜单：合规要求用户能随时找到并阅读现行协议，
-  // 不能只藏在「通用 - 关于我们」里。
-  {
-    label: "隐私政策",
-    icon: "/static/icons/general.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => nav("/pages/agreement/detail?type=privacy_policy"),
-  },
-  {
-    label: "用户协议",
-    icon: "/static/icons/general.svg",
-    iconBg: "rgba(0,0,0,0.0)",
-    iconColor: "#fff",
-    action: () => nav("/pages/agreement/detail?type=user_agreement"),
-  },
-  // 「协议同意记录」不再单独占个人中心一级入口：同意时间与版本已经直接展示在
-  // 「隐私政策」「用户协议」页尾（src/pages/agreement/detail.vue），单开一页属于重复占用空间。
 ];
 
 function nav(url: string) {
@@ -425,17 +404,10 @@ function copyQQGroup() {
 .tag__text {
   font-size: 21rpx;
 }
-.stat-label {
-  font-size: 24rpx;
-  color: #444;
-}
 .stat-value {
   font-size: 24rpx;
   font-weight: 700;
   color: #ff8c00;
-}
-.stat-gap {
-  margin-left: 24rpx;
 }
 .hint {
   font-size: 24rpx;

@@ -14,7 +14,6 @@
       <view class="head-spacer" />
       <Skeleton :width="60" :height="60" circle />
     </view>
-
     <!-- 白色内层 -->
     <view class="body">
       <Skeleton width="100%" :height="32" :rounded="8" block />

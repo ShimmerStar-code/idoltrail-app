@@ -139,6 +139,7 @@
 <script setup lang="ts">
 import { donateApi } from "@/api/donate";
 import { withLogin } from "@/utils/auth-guard";
+import { switchTabPage } from "@/utils/pages";
 import { getStatusBarHeight } from "@/utils/system";
 import { onUnload } from "@dcloudio/uni-app";
 import { computed, onMounted, ref } from "vue";
@@ -339,7 +340,9 @@ function selectTier(key: string) {
 function onBack() {
   const pages = getCurrentPages();
   if (pages.length > 1) uni.navigateBack();
-  else uni.reLaunch({ url: "/pages/profile/index" });
+  // 「我的」是 tab 页 —— 用 switchTab 而不是 reLaunch：
+  // reLaunch 会清空页面栈并重建，丢掉原生 tabBar 的保活优势
+  else switchTabPage("/pages/profile/index");
 }
 
 // ─── 支付流程 ───

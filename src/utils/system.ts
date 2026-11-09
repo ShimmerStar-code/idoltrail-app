@@ -41,6 +41,42 @@ export function getStatusBarHeight(): number {
   return 20;
 }
 
+/**
+ * 读取顶部安全区高度（px）：状态栏与摄像头挖孔取较大者。
+ *
+ * 刘海 / 水滴屏机型上，摄像头（display cutout）的深度可能超过状态栏高度，
+ * 只按 statusBarHeight 顶开内容，**贴顶的元素**（搜索框、标题）会被摄像头压住。
+ * 所以顶开高度取两者较大值。
+ */
+export function getTopSafeAreaHeight(): number {
+  return Math.max(getStatusBarHeight(), getCutoutTop());
+}
+
+/**
+ * 读取摄像头挖孔顶部内缩（px），取不到时返回 0。
+ *
+ * App 端优先用 HTML5+ 的 getSafeAreaInsets（能拿到真实的挖孔深度），
+ * 再退回 uni.getWindowInfo().safeAreaInsets.top。
+ */
+function getCutoutTop(): number {
+  // #ifdef APP-PLUS
+  try {
+    const insets = plus?.navigator?.getSafeAreaInsets?.();
+    if (typeof insets?.top === "number" && insets.top > 0) return insets.top;
+  } catch {
+    /* 平台不支持时降级 */
+  }
+  // #endif
+  try {
+    const w = uni.getWindowInfo?.();
+    const top = w?.safeAreaInsets?.top;
+    if (typeof top === "number" && top > 0) return top;
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+
 /** 读取页面底部安全区高度（px），无全面屏时返回 0 */
 export function getBottomSafeAreaHeight(): number {
   try {
