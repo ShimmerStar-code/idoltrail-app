@@ -112,7 +112,7 @@ jobs:
             --android.certalias "$ANDROID_KEYSTORE_ALIAS" \
             --android.certfile "$APK_KEYSTORE" \
             --android.certpassword "$ANDROID_KEYSTORE_KEY_PASSWORD" \
-            --android.storepassword "$ANDROID_KEYSTORE_STORE_PASSWORD" | tee "$log"
+            --android.storepassword "$ANDROID_KEYSTORE_STORE_PASSWORD" 2>&1 | tee "$log"
 
       - name: 读取 DCloud 临时下载地址
         run: |
