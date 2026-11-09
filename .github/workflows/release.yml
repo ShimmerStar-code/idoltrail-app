@@ -118,11 +118,27 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs')
-          const log = fs.readFileSync(process.env.RUNNER_TEMP + '/hbuilder-pack.log', 'utf8')
-          const urls = log.match(/https:\/\/service\.dcloud\.net\.cn\/build\/download\/[A-Za-z0-9-]+/g) || []
-          if (!urls.length) throw new Error('云打包日志中没有 APK 下载地址')
+          const raw = fs.readFileSync(process.env.RUNNER_TEMP + '/hbuilder-pack.log', 'utf8')
+          const log = raw.replace(/\x1b\[[0-9;]*m/g, '')
+          const lines = log.split(/\r?\n/).filter(line => /下载地址|下载链接|Download Link|Download URL/i.test(line))
+          const candidates = lines.length ? lines : [log]
+          const urls = candidates.join('\n').match(/https?:\/\/[^\s"'<>）)\]]+/g) || []
+            .map(url => url.replace(/[，。；;]+$/g, ''))
+            .filter(url => /download|build/i.test(url))
+          if (!urls.length) {
+            console.error(raw)
+            throw new Error('云打包日志中没有 APK 下载地址；完整日志已输出并会作为 artifact 保存')
+          }
           fs.appendFileSync(process.env.GITHUB_ENV, `DCLOUD_APK_URL=${urls.at(-1)}\n`)
           NODE
+
+      - name: 上传云打包日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hbuilder-pack-${{ env.RELEASE_VERSION || github.ref_name }}.log
+          path: ${{ runner.temp }}/hbuilder-pack.log
+          retention-days: 14
 
       - name: 下载并校验 APK
         env:
