@@ -37,6 +37,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.version || github.ref_name }}
       APP_API_BASE_URL: https://api.idoltrail.com/api/v1
       HBUILDERX_VERSION: 5.34.2026102909
+      UNI_CLI_CONTEXT: ${{ github.workspace }}
       NODE_PATH: ${{ github.workspace }}/node_modules
       EXPECTED_APK_CERT_SHA256: 21:3D:55:6F:54:FF:7F:D3:05:0B:95:1D:AF:97:8D:22:8A:AE:65:27:55:98:92:AF:B7:5A:D9:BE:D7:A0:76:99
 
@@ -60,7 +61,7 @@ jobs:
       - name: 安装依赖
         run: |
           npm ci
-          node -e "console.log(require.resolve('@dcloudio/uni-uts-v1/package.json'))"
+          node -e "console.log(require.resolve('@dcloudio/uni-uts-v1', { paths: [process.env.UNI_CLI_CONTEXT] }))"
 
       - name: 从 tag 写入 App 版本
         id: version
@@ -144,11 +145,10 @@ jobs:
           const fs = require('node:fs')
           const raw = fs.readFileSync(process.env.RUNNER_TEMP + '/hbuilder-pack.log', 'utf8')
           const log = raw.replace(/\x1b\[[0-9;]*m/g, '')
-          const lines = log.split(/\r?\n/).filter(line => /下载地址|下载链接|Download Link|Download URL/i.test(line))
-          const candidates = lines.length ? lines : [log]
-          const urls = candidates.join('\n').match(/https?:\/\/[^\s"'<>）)\]]+/g) || []
-            .map(url => url.replace(/[，。；;]+$/g, ''))
-            .filter(url => /download|build/i.test(url))
+          if (/Compiling failed|compilation failed|编译失败/i.test(log)) {
+            throw new Error('HBuilder 项目编译失败，未生成 APK；请查看打包日志')
+          }
+          const urls = log.match(/https:\/\/service\.dcloud\.net\.cn\/build\/download\/[A-Za-z0-9-]+/g) || []
           if (!urls.length) {
             console.error(raw)
             throw new Error('云打包日志中没有 APK 下载地址；完整日志已输出并会作为 artifact 保存')
