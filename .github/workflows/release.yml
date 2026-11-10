@@ -84,6 +84,28 @@ jobs:
           test -s "$RUNNER_TEMP/idoltrail.jks"
           echo "APK_KEYSTORE=$RUNNER_TEMP/idoltrail.jks" >> "$GITHUB_ENV"
 
+      - name: 启动并检查 HBuilderX
+        run: |
+          set -eu
+          cli="$RUNNER_TEMP/hbuilderx/cli"
+          log="$RUNNER_TEMP/hbuilder-open.log"
+          "$cli" open > "$log" 2>&1
+          cat "$log"
+          ready=false
+          for i in $(seq 1 15); do
+            if "$cli" project list >> "$log" 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          ps -ef | awk '/[H]BuilderX/ { print }' | tee -a "$log"
+          if [ "$ready" != "true" ]; then
+            cat "$log"
+            echo "HBuilderX 启动后 30 秒仍不就绪" >&2
+            exit 1
+          fi
+
       - name: 登录 DCloud 并导入项目
         env:
           DCLOUD_USERNAME: ${{ secrets.DCLOUD_USERNAME }}
@@ -91,7 +113,6 @@ jobs:
         run: |
           set -eu
           cli="$RUNNER_TEMP/hbuilderx/cli"
-          "$cli" open
           "$cli" user login --username "$DCLOUD_USERNAME" --password "$DCLOUD_PASSWORD"
           "$cli" project open --path "$GITHUB_WORKSPACE"
 
@@ -137,7 +158,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hbuilder-pack-${{ env.RELEASE_VERSION || github.ref_name }}.log
-          path: ${{ runner.temp }}/hbuilder-pack.log
+          path: |
+            ${{ runner.temp }}/hbuilder-open.log
+            ${{ runner.temp }}/hbuilder-pack.log
           retention-days: 14
 
       - name: 下载并校验 APK
