@@ -37,8 +37,8 @@ jobs:
       RELEASE_TAG: ${{ inputs.version || github.ref_name }}
       APP_API_BASE_URL: https://api.idoltrail.com/api/v1
       HBUILDERX_VERSION: 5.34.2026102909
-      UNI_CLI_CONTEXT: ${{ github.workspace }}
-      NODE_PATH: ${{ github.workspace }}/node_modules
+      UNI_UTS_COMPILER_PATH: ${{ github.workspace }}/node_modules/@dcloudio/uni-uts-v1/dist/index.js
+      NODE_OPTIONS: --require ${{ github.workspace }}/scripts/ci/force-uts-resolution.cjs
       EXPECTED_APK_CERT_SHA256: 21:3D:55:6F:54:FF:7F:D3:05:0B:95:1D:AF:97:8D:22:8A:AE:65:27:55:98:92:AF:B7:5A:D9:BE:D7:A0:76:99
 
     steps:
@@ -78,8 +78,6 @@ jobs:
           mkdir -p "$install_dir"
           tar -xzf "$archive" -C "$install_dir" --strip-components=1
           "$install_dir/cli" ver
-          node scripts/ci/patch-hbuilder-uts.mjs \
-            "$install_dir" "$GITHUB_WORKSPACE/node_modules/@dcloudio/uni-uts-v1/dist/index.js"
 
       - name: 准备 Android 签名证书
         env:
