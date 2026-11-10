@@ -25,7 +25,7 @@
 | 3 | **「不通」曾是误判** | 厂商通道有**分钟级聚合延迟**（MIUI），45s 观察窗必然判失败；必须等 10 分钟以上 |
 | 4 | **通知栏点击定稿 `startapp`** | 厂商通道原生支持，不依赖 intent 透传；点通知**只打开 App**，跳转由 App 内部通知中心承接 |
 | 5 | **扩展库做不了这个组合** | `uni-cloud-push` 的 `notification` 与 `payload` 互斥（见 `docs/unipush-offline.md` §6.1），必须云函数直连个推 |
-| 6 | **每日限流** | 每用户每天最多 2 条系统推送（`UNIPUSH_DAILY_LIMIT`），站内通知仍全量落库 |
+| 6 | **每日限流（默认已关闭）** | 每用户每天最多 2 条系统推送的限流**默认 0 = 不限**（2026-11-10 起）。限流按用户计数，会把用户最关心的偶像改期一并丢掉，确需限流时用 `UNIPUSH_DAILY_LIMIT` 显式开启；站内通知始终全量落库 |
 
 > 第四轮的完整数据、下发链路设计与踩坑记录在
 > [`docs/unipush-offline.md`](./unipush-offline.md) §6。
@@ -464,6 +464,8 @@ DCloud 开发者中心 → uni-push 2.0 → 厂商推送设置 → 小米：
 - **每日限流（每用户每天 2 条）的真机表现**：服务端侧已有单测覆盖
   （`internal/service/push_quota_test.go` + `notification_push_unipush_test.go`），
   但「第 3 条真的不推」需要连发 3 条真机验证。
+  → **2026-11-10 起默认不限流**（`UNIPUSH_DAILY_LIMIT` 默认 0），
+  这条待办作废；改为「连发 3 条，3 条都要到」作为回归项。
 
 ---
 

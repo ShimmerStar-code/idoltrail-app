@@ -531,8 +531,9 @@ v2 隔离环境的 admin-web 部署在同机的 v2 vhost（`https://admin.idoltr
 ## 消息推送逻辑（站内消息 + 系统推送）
 
 - **站内消息与系统推送共用一张 `notifications` 表，但口径完全不同**：
-  站内消息（消息中心）不限量、只限本人可见；系统推送（uni-push 通知栏）**每用户每天 2 条**
-  （`internal/service/push_quota.go`，未部署）。
+  站内消息（消息中心）不限量、只限本人可见；系统推送（uni-push 通知栏）**默认也不限量**
+  （`UNIPUSH_DAILY_LIMIT` 默认 **0 = 不限**；限流按用户计数，会把用户最关心的
+  偶像改期一并丢掉，2026-11-10 已取消默认限流，确需限流时用环境变量显式开启）。
 - 城市订阅**只推** `new_event` + `event_cancel`；时间/场地/信息变更只推给**活动订阅者**。
   未发布（`DRAFT`）活动不发通知，`event_cancel` 豁免。
 - App 端「清空全部消息」依赖后端新接口 `DELETE /notifications`，

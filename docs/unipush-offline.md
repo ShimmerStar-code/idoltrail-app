@@ -23,7 +23,7 @@
 | **在线（长连接）通道送达** | ✅ 已确认（2026-10-30） | A/B 对照实验：下发后 2s 内出现 2 次 `GET /api/v1/notifications/unread`；不下发则 40s 内为 0 |
 | **离线（厂商通道）送达** | ✅ 已确认（2026-10-30） | `am kill` 后下发，回执 `successed_offline`，**约 11 分钟后**通知栏出现且 App 进程被厂商通道唤起（见 §6.3） |
 | **通知栏点击只打开 App** | ✅ 已定稿（`click_type=startapp`） | 云函数 `unipush-send`；点击不再依赖厂商透传 intent（见 §6.6） |
-| **每日推送限流（每用户每天 2 条）** | ✅ 已实现 | Go 后端 `UNIPUSH_DAILY_LIMIT`（默认 2），超限记 `skipped`（见 §6.6） |
+| **每日推送限流（每用户每天 2 条）** | ⚠️ 已实现但**默认关闭**（2026-11-10 起） | Go 后端 `UNIPUSH_DAILY_LIMIT`（默认 **0 = 不限**）；限流按用户计数，会把用户最关心的偶像改期一并丢掉，确需限流时用环境变量显式开启（见 §6.6） |
 | **DCloud 后台离线推送配置（小米/华为凭据）** | ✅ 已配（小米可用，华为未验证） | DCloud 开发者中心 → uni-push → 离线推送 |
 | **厂商平台侧开通（AppID / 证书 / 包名绑定）** | ✅ 小米已开通 | 小米开放平台、华为 AppGallery Connect |
 | **重新云打包**（厂商凭据是打包期注入） | ✅ 已完成 | HBuilderX 发行 → 云打包（含 Push 模块） |
@@ -380,7 +380,7 @@ from user_devices order by id desc limit 5;
 | 通知栏的角色 | **聚合提示**：点开 App 即可，具体是哪条消息由 App 内部的站内通知列表承载 |
 | 点击行为 | `click_type: "startapp"` —— **只打开 App，不带跳转参数** |
 | 跳转 | 站内通知（`notifications` 表）全量落库，用户在 App 通知中心看全部更新 |
-| 频次 | **每用户每天最多 2 条系统推送**（不是每条订阅更新都推一次） |
+| 频次 | **默认不限**（每用户每天最多 2 条的限流已默认关闭，见下） |
 
 **为什么用 `startapp` 而不是 `intent`**：
 
@@ -400,8 +400,8 @@ from user_devices order by id desc limit 5;
 | 层 | 改动 |
 |----|------|
 | 云函数 `unipush-send` | `click_type` 默认 `startapp`（`UNIPUSH_CLICK_TYPE` 可切换 `intent`/`payload`/`both`） |
-| Go 后端 `config` | `UniPushDailyLimit`（env `UNIPUSH_DAILY_LIMIT`，默认 **2**，0 = 不限） |
-| Go 后端 `pushUniPush()` | 每日限量：统计 `notifications` 表里 `channel=unipush 且 push_status=sent` 的当日条数，达上限记 `skipped` 并写明原因 |
+| Go 后端 `config` | `UniPushDailyLimit`（env `UNIPUSH_DAILY_LIMIT`，默认 **0 = 不限**，确需限流时显式设置） |
+| Go 后端 `pushUniPush()` | 每日限量（默认关闭）：统计 `notifications` 表里 `channel=unipush 且 push_status=sent` 的当日条数，达上限记 `skipped` 并写明原因 |
 | App 端 | **无需改动**：`navigateByPush()` 已有 `if (!url) return` 保护，空 payload 不会误跳转 |
 
 > 限流只作用于**系统推送**；站内通知落库不受影响，用户在通知中心仍能看到全部更新。
@@ -480,11 +480,15 @@ from user_devices order by id desc limit 5;
 - **Android 与 iOS 的点击行为不同**：Android 用 `push_channel.android.ups.notification`，
   `click_type=startapp` 只开 App；iOS 走 `push_channel.ios`（APNs），仍带 `payload`，
   点通知会带 payload 触发 App 内跳转。同一套 Go 下发两端表现不同，**这是预期的**。
-- **每日限流只算「成功下发」**：统计口径是 `notifications` 表里
-  `channel=unipush 且 push_status=sent 且 delivered_at >= 当日零点` 的行数。
-  统计失败**不阻断下发**（宁可多推一条，也不因为计数故障把推送全停）。
-  同一条通知若被微信通道覆盖了 `channel`（多通道合并时按 `sent > failed > skipped` 取优先级），
-  该次推送不计入限流 —— 属可接受偏差，不影响站内通知落库。
+- **每日限流默认关闭**（`UNIPUSH_DAILY_LIMIT` 默认 0 = 不限，2026-11-10 起）：
+  限流按用户计数，用户当天收到过 N 条后**所有**后续订阅更新（包括他最关心的
+  偶像改期）都会被静默丢弃，表现为「站内通知有、通知栏没有」，
+  极易被误判成通道故障。需要限流时用环境变量显式开启，那时：
+  - **只算「成功下发」**：统计口径是 `notifications` 表里
+    `channel=unipush 且 push_status=sent 且 delivered_at >= 当日零点` 的行数。
+    统计失败**不阻断下发**（宁可多推一条，也不因为计数故障把推送全停）。
+    同一条通知若被微信通道覆盖了 `channel`（多通道合并时按 `sent > failed > skipped` 取优先级），
+    该次推送不计入限流 —— 属可接受偏差，不影响站内通知落库。
 
 ---
 
@@ -498,7 +502,7 @@ from user_devices order by id desc limit 5;
 | 被杀后收不到 | 厂商通道未配置；或设备关闭了「后台弹出通知」；或用的是标准基座；或厂商 token 上报失败（见下） |
 | 通知点击不跳转 | **预期行为**：已定稿 `click_type=startapp` —— 点通知**只打开 App**，跳转由 App 内部通知中心承接（见 §6.6） |
 | 想让点通知跳到某个活动详情 | 需要改回 `intent`/`payload` 形态并解决厂商透传问题（§6.7，已放弃）；或点通知后 App 自己跳通知中心 |
-| App 收到推送但没收到「今天第 3 条」 | **预期行为**：每用户每天最多 2 条系统推送（`UNIPUSH_DAILY_LIMIT`，默认 2），超限记 `skipped` + `daily_push_limit_reached(N)`；站内通知仍全量落库 |
+| App 收到推送但没收到「今天第 3 条」 | **已不适用**（2026-11-10 起默认不限流）。若环境里显式设了 `UNIPUSH_DAILY_LIMIT`，超限记 `skipped` + `daily_push_limit_reached(N)`；站内通知始终全量落库 |
 | 云函数返回「非法访问」 | 签名串里 `clientids` 写成了数组；必须是逗号连接后的字符串 |
 | **云函数 `errCode:0` 但设备零反应** | `errCode:0` **只代表任务入队**。判断送达必须看设备侧证据（见下两行） |
 | **回执 `successed_offline` 但设备没通知** | **不是失败**：厂商通道有分钟级聚合延迟（实测 ~11 分钟），见 §6.3。等 10 分钟以上再判定 |
