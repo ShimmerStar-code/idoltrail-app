@@ -78,6 +78,12 @@ jobs:
           mkdir -p "$install_dir"
           tar -xzf "$archive" -C "$install_dir" --strip-components=1
           "$install_dir/cli" ver
+          compiler_modules="$install_dir/plugins/uniapp-cli-vite/node_modules/@dcloudio"
+          mkdir -p "$compiler_modules"
+          if [ ! -e "$compiler_modules/uni-uts-v1" ]; then
+            ln -s "$GITHUB_WORKSPACE/node_modules/@dcloudio/uni-uts-v1" \
+              "$compiler_modules/uni-uts-v1"
+          fi
 
       - name: 准备 Android 签名证书
         env:
