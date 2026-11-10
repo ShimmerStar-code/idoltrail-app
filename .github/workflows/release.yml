@@ -29,7 +29,6 @@ jobs:
     name: HBuilder 云打包 / 发布 Android
     needs: verify
     runs-on: ubuntu-latest
-    container: ubuntu:20.04
     environment: production
     permissions:
       contents: write
@@ -47,11 +46,9 @@ jobs:
       - name: 安装系统工具
         run: |
           set -eu
-          sed -i 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
-          apt-get -o Acquire::Retries=5 -o Acquire::https::Timeout=30 update
-          DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 \
-            -o Acquire::https::Timeout=30 --fix-missing install -y --no-install-recommends \
-            git curl ca-certificates tar gzip unzip aapt apksigner
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 \
+            --fix-missing install -y --no-install-recommends aapt apksigner
 
       - name: 安装 Node
         uses: actions/setup-node@v4
