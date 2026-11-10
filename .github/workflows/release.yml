@@ -38,7 +38,11 @@ jobs:
       APP_API_BASE_URL: https://api.idoltrail.com/api/v1
       HBUILDERX_VERSION: 5.34.2026102909
       UNI_UTS_COMPILER_PATH: ${{ github.workspace }}/node_modules/@dcloudio/uni-uts-v1/dist/index.js
-      NODE_OPTIONS: --require ${{ github.workspace }}/scripts/ci/force-uts-resolution.cjs
+      # ⚠️ NODE_OPTIONS 不能放 job 级：它对 job 里**每一个** node 进程生效，
+      # 包括 actions/checkout 自己 —— 那时仓库还没检出，下面那个 hook 文件不存在，
+      # node 直接以 "Cannot find module .../force-uts-resolution.cjs" 崩掉，
+      # 打包死在第 2 步（v0.1.6 ~ v0.1.13 的 Release 全挂在这）。
+      # hook 只在真正需要它的 HBuilderX 步骤按步骤注入。
       EXPECTED_APK_CERT_SHA256: 21:3D:55:6F:54:FF:7F:D3:05:0B:95:1D:AF:97:8D:22:8A:AE:65:27:55:98:92:AF:B7:5A:D9:BE:D7:A0:76:99
 
     steps:
@@ -60,8 +64,14 @@ jobs:
 
       - name: 安装依赖
         run: |
+          set -eu
           npm ci
-          node -e "console.log(require.resolve('@dcloudio/uni-uts-v1', { paths: [process.env.UNI_CLI_CONTEXT] }))"
+          # hook 只在 HBuilderX 步骤启用，它依赖这个文件；先确认它真的在。
+          # （原来这里用 require.resolve + UNI_CLI_CONTEXT，而那个变量在 CI 里
+          #  根本不存在 → 这一步自己就会抛 TypeError。）
+          test -f "$UNI_UTS_COMPILER_PATH" \
+            || { echo "UTS 编译器缺失：$UNI_UTS_COMPILER_PATH" >&2; exit 1; }
+          echo "UTS 编译器就位：$UNI_UTS_COMPILER_PATH"
 
       - name: 从 tag 写入 App 版本
         id: version
@@ -89,6 +99,12 @@ jobs:
           echo "APK_KEYSTORE=$RUNNER_TEMP/idoltrail.jks" >> "$GITHUB_ENV"
 
       - name: 启动并检查 HBuilderX
+        env:
+          # 把 require('@dcloudio/uni-uts-v1') 指向工作区的编译器：
+          # HBuilderX 自带的版本与本工程的 @dcloudio/uni-uts-v1 对不上，
+          # 不重定向就会在编译 UTS 插件时报
+          #   Cannot find module: @dcloudio/uni-uts-v1（v0.1.9 就死在这）
+          NODE_OPTIONS: --require ${{ github.workspace }}/scripts/ci/force-uts-resolution.cjs
         run: |
           set -eu
           cli="$RUNNER_TEMP/hbuilderx/cli"
@@ -114,6 +130,7 @@ jobs:
         env:
           DCLOUD_USERNAME: ${{ secrets.DCLOUD_USERNAME }}
           DCLOUD_PASSWORD: ${{ secrets.DCLOUD_PASSWORD }}
+          NODE_OPTIONS: --require ${{ github.workspace }}/scripts/ci/force-uts-resolution.cjs
         run: |
           set -eu
           cli="$RUNNER_TEMP/hbuilderx/cli"
@@ -125,6 +142,7 @@ jobs:
           ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
           ANDROID_KEYSTORE_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
           ANDROID_KEYSTORE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_STORE_PASSWORD }}
+          NODE_OPTIONS: --require ${{ github.workspace }}/scripts/ci/force-uts-resolution.cjs
         run: |
           set -eu
           log="$RUNNER_TEMP/hbuilder-pack.log"
