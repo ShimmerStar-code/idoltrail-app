@@ -293,16 +293,20 @@
                     mode="aspectFit"
                   />
                 </view>
-                <text v-if="currentSession.times.length === 1" class="dtxt">{{
-                  formatSessionTime(currentSession.times[0])
-                }}</text>
-                <view v-else class="dtxt-list">
-                  <text
-                    v-for="(t, i) in visibleSessionTimes"
+                <!-- 三列（日期 / 周几 / 时间）分行渲染：
+                     整串拼一个 <text> 时字宽随内容变，「周六」「19:30」的
+                     起始位置会跟着漂，多条日期竖排参差不齐。 -->
+                <view class="stime-list">
+                  <view
+                    v-for="(row, i) in visibleSessionTimeRows"
                     :key="i"
-                    class="dtxt-list-item"
-                    >{{ formatSessionTime(t) }}</text
+                    class="stime-row"
+                    :class="{ 'stime-row--expired': row.expired }"
                   >
+                    <text class="stime-date">{{ row.date }}</text>
+                    <text class="stime-week">{{ row.weekday }}</text>
+                    <text class="stime-clock">{{ row.clock }}</text>
+                  </view>
                 </view>
                 <text v-if="sessionDates.length" class="dtxt-arrow">›</text>
               </view>
@@ -461,7 +465,9 @@
       v-model:visible="calendarVisible"
       :mark-dates="sessionDates"
       :current-date="currentSessionDate"
+      :today="todayYmdStr"
       :theme-color="theme.ink"
+      :theme-base="theme.base"
       @pick="onCalendarPick"
     />
   </PageLayout>
@@ -496,7 +502,7 @@ import {
   todayYMD,
   GENERIC_AUDIENCE_NOTICE,
 } from "@/constants/eventMeta";
-import { onLoad } from "@dcloudio/uni-app";
+import { onLoad, onShow } from "@dcloudio/uni-app";
 import { computed, onMounted, ref, watch } from "vue";
 
 const store = useEventStore();
@@ -575,7 +581,27 @@ const SESSIONS_MAX = 30;
 const SESSION_TIMES_MAX = 20;
 const ARTISTS_MAX = 12;
 
-function isSessionExpired(session: EventSession, now: Date = new Date()): boolean {
+/** 周几（索引 = Date.getDay()，0 为周日） */
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+/**
+ * 今天的日期（YYYY-MM-DD）——「今天 / 已结束」的唯一口径。
+ *
+ * 用 onShow 触发的 tick 派生而不是模块加载时的常量：App 长时间挂在后台，
+ * 跨零点回到前台时「今天」必须跟着变，否则会把昨天当成今天、
+ * 把今天当成已结束。
+ */
+const todayTick = ref(0);
+const todayYmdStr = computed(() => {
+  // 依赖 tick：每次页面回到前台重算
+  void todayTick.value;
+  return todayYMD();
+});
+onShow(() => {
+  todayTick.value += 1;
+});
+
+function isSessionExpired(session: EventSession, now?: Date): boolean {
   const endDate = [
     session.event_date,
     ...(session.times ?? []).map((time) => time.event_date),
@@ -585,7 +611,10 @@ function isSessionExpired(session: EventSession, now: Date = new Date()): boolea
       const value = date.slice(0, 10);
       return value > latest ? value : latest;
     }, "");
-  return session.status === "ENDED" || (!!endDate && endDate < todayYMD(now));
+  // 不传 now 时走 todayYmdStr：它是响应式的，跨零点回到前台会重算，
+  // 模板里读它的场次也会跟着重新渲染。
+  const today = now ? todayYMD(now) : todayYmdStr.value;
+  return session.status === "ENDED" || (!!endDate && endDate < today);
 }
 
 /**
@@ -614,16 +643,17 @@ function isSessionPending(session: EventSession): boolean {
  *
  * 待定**不算过期活动**，排在有效之后、过期之前（与后端 SessionOrderBy 同口径）。
  */
-function sessionRank(session: EventSession, now: Date = new Date()): number {
+function sessionRank(session: EventSession, now?: Date): number {
   if (isSessionExpired(session, now)) return 2;
   if (isSessionPending(session)) return 1;
   return 0;
 }
 
 const visibleSessions = computed(() => {
-  const now = new Date();
+  // 依赖 todayYmdStr：跨零点回到前台时场次的「有效/过期」排序要重排
+  void todayYmdStr.value;
   return [...(d.value?.sessions ?? [])]
-    .sort((a, b) => sessionRank(a, now) - sessionRank(b, now))
+    .sort((a, b) => sessionRank(a) - sessionRank(b))
     .slice(0, SESSIONS_MAX);
 });
 
@@ -631,7 +661,47 @@ const currentSession = computed<EventSession | null>(() => {
   return visibleSessions.value[activeSessionIdx.value] ?? null;
 });
 
-const visibleSessionTimes = computed(() => currentSession.value?.times?.slice(0, SESSION_TIMES_MAX) ?? []);
+/**
+ * 场次时间的一行（日期 / 周几 / 时间 三列）。
+ *
+ * 为什么要拆成三列而不是拼成一个字符串：
+ * 字体是比例宽度，"2026.11.07" 与 "19:30" 的实际占宽会随数字变化
+ * （"1" 比 "8" 窄），拼成一整串时后面的列跟着前面的字符漂移，
+ * 多条日期竖排就参差不齐。拆列 + 定宽 + 日期/时间用等宽字体
+ * 才能让「周几」「时间」严格列对齐（见样式 .stime-*）。
+ */
+interface SessionTimeRow {
+  /** 2026.11.07 */
+  date: string;
+  /** 周六 */
+  weekday: string;
+  /** 19:30，无则空 */
+  clock: string;
+  /** 该条已过期（日期早于今天） */
+  expired: boolean;
+}
+
+const visibleSessionTimeRows = computed<SessionTimeRow[]>(() => {
+  const session = currentSession.value;
+  if (!session) return [];
+  const today = todayYmdStr.value;
+  return (session.times ?? []).slice(0, SESSION_TIMES_MAX).map((t) => {
+    const datePart = String(t.event_date ?? "").split("T")[0];
+    const [y, m, day] = datePart.split("-").map(Number);
+    const mm = String(m).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return {
+      date: datePart ? `${y}.${mm}.${dd}` : "",
+      weekday: datePart ? `周${WEEKDAYS[new Date(y, m - 1, day).getDay()]}` : "",
+      clock: t.start_time ? String(t.start_time).slice(0, 5) : "",
+      // 过期口径：场次被标 ENDED，或这一条的日期早于今天。
+      // 与 isSessionExpired 的场次级判定同源，但**逐条**判定 ——
+      // 跨多天的演出（11-08~11-10）里 11-08 那条已经过了，该红；
+      // 场次整体未过期不代表每一条都没过期。
+      expired: session.status === "ENDED" || (!!datePart && datePart < today),
+    };
+  });
+});
 
 const visibleArtists = computed(() => (d.value?.artists ?? []).slice(0, ARTISTS_MAX));
 
@@ -642,19 +712,35 @@ function selectSession(idx: number) {
 // ── 场次日历 ────────────────────────────────────────────────────
 const calendarVisible = ref(false);
 
-/** 活动所有场次的演出日期（去重，YYYY-MM-DD）——日历上的「演出日」标记 */
+/**
+ * 日历上要标记的演出日期（YYYY-MM-DD）。
+ *
+ * ⚠ **只取当前场次的日期**，不是整个活动所有场次的并集。
+ * 之前把全活动所有场次的日期都标上，日历上几十个点却分不清哪些属于
+ * 现在看的那一场 —— 用户根本对不上号（场次导航条在顶部另有一套切换）。
+ * 这里跟当前场次一一对应，日历只回答「这一场在哪几天演」。
+ */
 const sessionDates = computed<string[]>(() => {
+  const s = currentSession.value;
+  if (!s) return [];
   const set = new Set<string>();
-  for (const s of d.value?.sessions ?? []) {
-    if (s.event_date) set.add(String(s.event_date).slice(0, 10));
-    for (const t of s.times ?? []) {
-      if (t.event_date) set.add(String(t.event_date).slice(0, 10));
-    }
+  if (s.event_date) set.add(String(s.event_date).slice(0, 10));
+  for (const t of s.times ?? []) {
+    if (t.event_date) set.add(String(t.event_date).slice(0, 10));
   }
   return Array.from(set).sort();
 });
 
-/** 当前场次的日期（单日取当天，多日取最早那天）——日历上的定位与高亮 */
+/**
+ * 当前场次的「代表日期」——日历上的定位、下划线标记都用它。
+ *
+ * 取**离今天最近的那一天**，不是最早的那天：
+ * · 场次已过了大半（11-08/11-09/11-10，今天 11-09）→ 标记 11-09，
+ *   而不是 11-08（那已经是过去的事了，看着像过期）；
+ * · 场次全是未来（12-20/12-21）→ 标记 12-20，即最早的那天；
+ * · 场次全过期（10-01/10-02，今天 11-09）→ 标记 10-02（最晚的那天，
+ *   也就是离今天最近的一天），而不是 10-01。
+ */
 const currentSessionDate = computed<string>(() => {
   const s = currentSession.value;
   if (!s) return "";
@@ -665,7 +751,11 @@ const currentSessionDate = computed<string>(() => {
     .filter((x): x is string => !!x)
     .map((x) => String(x).slice(0, 10))
     .sort();
-  return dates[0] ?? "";
+  if (!dates.length) return "";
+  const today = todayYmdStr.value;
+  // 今天及以后的最早那天 = 离今天最近的「还没演」的
+  const upcoming = dates.find((d) => d >= today);
+  return upcoming ?? dates[dates.length - 1];
 });
 
 function openCalendar() {
@@ -673,17 +763,14 @@ function openCalendar() {
   calendarVisible.value = true;
 }
 
-/** 点了日历上的某个演出日 → 切到那一场 */
-function onCalendarPick({ date }: { date: string }) {
-  const idx = visibleSessions.value.findIndex((s) =>
-    [
-      s.event_date,
-      ...(s.times ?? []).map((t) => t.event_date),
-    ]
-      .filter((x): x is string => !!x)
-      .some((x) => String(x).slice(0, 10) === date),
-  );
-  if (idx >= 0) selectSession(idx);
+/**
+ * 点了日历上的某个演出日。
+ *
+ * 日历只标记当前场次的日期，所以点到的必然属于当前场次 ——
+ * 不再切场次（切场次由顶部的场次导航条负责，两者职责分开），
+ * 点了只是关闭日历。
+ */
+function onCalendarPick(_payload: { date: string }) {
   calendarVisible.value = false;
 }
 
@@ -755,8 +842,6 @@ async function onToggleLike() {
 // 而缓存里的基线仍是订阅前的旧值 —— 3 分钟内二次进入本页会显示错误订阅数。
 const subscribeCount = computed(() => d.value?.subscribe_count ?? 0);
 
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-
 /**
  * 场次卡片标题。
  *
@@ -810,23 +895,6 @@ function openMap(session: EventSession) {
       uni.showToast({ title: "未能打开地图，请稍后重试", icon: "none" });
     },
   });
-}
-
-/**
- * 格式化场次时间：不带城市名（城市已在卡片标题显示）。
- *
- * 月/日**补零到两位**（2026.11.07 而非 2026.11.7）：巡演动辄十几场，
- * 单数字月份/日期的文本宽度不一致，竖排对齐时参差不齐，很难看。
- */
-function formatSessionTime(t: { event_date: string; start_time?: string | null }) {
-  const datePart = (t.event_date ?? "").split("T")[0];
-  if (!datePart) return "";
-  const [y, m, day] = datePart.split("-").map(Number);
-  const weekday = WEEKDAYS[new Date(y, m - 1, day).getDay()];
-  const time = t.start_time?.slice(0, 5) ?? "";
-  const mm = String(m).padStart(2, "0");
-  const dd = String(day).padStart(2, "0");
-  return `${y}.${mm}.${dd} 周${weekday}${time ? " " + time : ""}`.trim();
 }
 
 function goBack() {
@@ -1509,26 +1577,6 @@ const noticeIsGeneric = computed(
   flex: 1;
 }
 
-.dtxt-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-  flex: 1;
-}
-
-.dtxt-list-item {
-  font-size: 28rpx;
-  color: #333;
-  line-height: 1.6;
-  padding: 8rpx 0;
-  border-bottom: 1rpx dashed rgba(0, 0, 0, 0.08);
-}
-
-.dtxt-list-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
 /* ── 信息 / 统计 / 地址 白色卡片 ── */
 .info-section {
   background: #fff;
@@ -1602,17 +1650,6 @@ const noticeIsGeneric = computed(
 .detail-row--times {
   align-items: flex-start;
 }
-/* 多条时间垂直排列 */
-.dtxt-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-.dtxt-list-item {
-  font-size: 26rpx;
-  color: #333;
-  line-height: 1.5;
-}
 .detail-row:last-of-type {
   margin-bottom: 0;
 }
@@ -1644,6 +1681,47 @@ const noticeIsGeneric = computed(
   color: #bbb;
   flex-shrink: 0;
   line-height: 1;
+}
+
+/* ── 场次时间三列（日期 / 周几 / 时间） ──
+   每列定宽：列与列的**起始位置**因此与内容无关，多条日期竖排时
+   「周几」「时间」严格列对齐（不定宽的话，日期里的 "1" 比 "8" 窄，
+   整串拼一个 <text> 时后面的列会跟着漂）。
+   列内再用 tabular-nums（等宽数字）让日期的个位与时间的小时对齐。 */
+.stime-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.stime-row {
+  display: flex;
+  align-items: baseline;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: #333;
+}
+.stime-date {
+  /* 2026.11.07 —— 10 个字符的定宽槽 */
+  width: 176rpx;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.stime-week {
+  /* 周六 —— 两个汉字的定宽槽 */
+  width: 72rpx;
+  flex-shrink: 0;
+}
+.stime-clock {
+  /* 19:30 —— 5 个字符的定宽槽 */
+  width: 104rpx;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* 已过期的条目：整行标红 */
+.stime-row--expired {
+  color: #e64340;
 }
 
 /* ── Section ── */
