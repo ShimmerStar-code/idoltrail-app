@@ -133,44 +133,70 @@
             </template>
           </template>
 
-          <!-- ── Tab 2 城市 ── -->
+          <!-- ── Tab 2 场馆 ── -->
+          <!--
+            这一 tab 原来叫「城市」，页面主体是「已订阅城市」的一堆卡片，
+            每张卡片又重复一遍同样的提示（tab 顶部 + 面板里各写了一遍
+            「不直接订阅城市…」），用户看到的是一屏重复文案。
+            现在改成「场馆」：按城市浏览场馆 → 点进场馆详情页 → 在那边决定要不要订阅。
+            老的城市订阅（存量）收在页面最下方，默认收起，仍可退订。
+          -->
           <template v-if="activeTab === 2">
             <view class="tab-tip">{{ TAB_TIPS[2] }}</view>
 
-            <!--
-              已订阅的城市：保留可退订入口。
-              App 端不再提供「订阅城市」的新增入口（一个城市的活动量太大，
-              订阅城市等于订阅一座城市的公告栏），新增走下面的「场馆订阅」。
-            -->
-            <view
-              v-if="store.myCities.length === 0 && !store.loading.cities"
-              class="empty"
-            >
-              还没有订阅的城市
-            </view>
-            <CitySubCard
-              v-for="item in store.myCities"
-              :key="item.city.id"
-              :item="item"
-              :type-options="typeOptions"
-              :tag-options="tagOptions"
-              @unsubscribe="onUnsubCity"
-              @updateExtra="onUpdateCityExtra"
-              @openRelated="onOpenCityRelated"
+            <!-- 我订阅的场馆：直接列在最上面，退订不用先去选城市翻列表 -->
+            <VenueSubList
+              :venues="store.myVenues"
+              :loading="store.loading.venues"
+              @open="onOpenVenue"
+              @unsubscribe="onUnsubscribeVenue"
             />
 
-            <!-- 场馆订阅：放在城市订阅列表下面 -->
+            <!-- 场馆浏览：选城市 → 看场馆 → 进详情页 -->
             <VenueSubPanel
               :city-name="venueCity.name"
               :venues="venueList"
               :loading="venueLoading"
+              :loading-more="venueLoadingMore"
+              :total="venueTotal"
               :subscribed-ids="store.subscribedVenueIds"
               :subscribed-count="store.myVenues.length"
               :limit="VENUE_LIMIT"
               @pick-city="onPickVenueCity"
+              @open="onOpenVenue"
               @subscribe="onSubscribeVenue"
               @unsubscribe="onUnsubscribeVenue"
             />
+
+            <!-- 存量城市订阅：默认收起，别再占据页面主体 -->
+            <view v-if="store.myCities.length > 0" class="city-legacy">
+              <view
+                class="city-legacy-head"
+                hover-class="city-legacy-head--hover"
+                @click="cityLegacyOpen = !cityLegacyOpen"
+              >
+                <text class="city-legacy-title"
+                  >已订阅的城市（{{ store.myCities.length }}）</text
+                >
+                <uni-icons
+                  :type="cityLegacyOpen ? 'up' : 'down'"
+                  size="14"
+                  color="#999"
+                />
+              </view>
+              <view v-if="cityLegacyOpen" class="city-legacy-body">
+                <CitySubCard
+                  v-for="item in store.myCities"
+                  :key="item.city.id"
+                  :item="item"
+                  :type-options="typeOptions"
+                  :tag-options="tagOptions"
+                  @unsubscribe="onUnsubCity"
+                  @updateExtra="onUpdateCityExtra"
+                  @openRelated="onOpenCityRelated"
+                />
+              </view>
+            </view>
           </template>
           <!-- ── Tab 3 日程 ── -->
           <template v-if="activeTab === 3">
@@ -229,6 +255,7 @@ import PageLayout from "@/components/PageLayout/index.vue";
 import ArtistGridCell from "@/components/Subscribe/ArtistGridCell.vue";
 import CitySubCard from "@/components/Subscribe/CitySubCard.vue";
 import VenueSubPanel from "@/components/Subscribe/VenueSubPanel.vue";
+import VenueSubList from "@/components/Subscribe/VenueSubList.vue";
 import ScheduleCalendar, {
   type ScheduleItem,
 } from "@/components/Subscribe/ScheduleCalendar.vue";
@@ -276,15 +303,19 @@ const eventStatus = ref<"ongoing" | "expired">("ongoing");
 // 活动列表分页尺寸，与下方 loadAllTabs / onScrollLower 保持一致
 const EVENT_PAGE_SIZE = 20;
 
-const tabs = ["偶像", "活动", "城市", "日程"];
+const tabs = ["偶像", "活动", "场馆", "日程"];
 
 // 每个 tab 顶部的一句说明，回答「订阅这个到底会给我什么」。
 // 放在列表上方而不是 header 里：header 常驻不滚动，切 tab 会带动整块高度变化；
 // 放进 scroll-view 后它随内容一起走，切 tab 不会让头部跳动。
+//
+// ⚠️ tab 提示与面板里的提示**不能重复**：原来「场馆订阅」面板里那句
+// 「不直接订阅城市（活动量太大），改订阅你常去的场馆，有新活动时通知你」
+// 与 tab 顶部一字不差，同屏出现两次，像出了 bug。
 const TAB_TIPS = [
   "下列偶像关联的活动都将通知你（最多 50 位）",
   "已订阅的活动有变动时将通知你",
-  "不直接订阅城市（活动量太大），改订阅你常去的场馆，有新活动时通知你",
+  "按城市浏览场馆，点进场馆可以查看详情与活动，再决定要不要订阅",
   "订阅过的演出在这里排成日历，可一键加入系统日历",
 ];
 
@@ -541,6 +572,20 @@ const cityPickerVisible = ref(false);
 const venueCity = ref<{ id: string; name: string }>({ id: "", name: "" });
 const venueList = ref<VenuePlace[]>([]);
 const venueLoading = ref(false);
+/** 场馆列表分页：城市级场馆数量可达数十个（北京 76 个），必须能翻页 */
+const venuePage = ref(1);
+const venueTotal = ref(0);
+const venueLoadingMore = ref(false);
+const VENUE_PAGE_SIZE = 50;
+
+/**
+ * 存量「城市订阅」区块是否展开。
+ *
+ * 这个 tab 现在是「场馆」页，城市订阅（老入口）收在最下面并默认收起：
+ * 它们的卡片高度大、提示重复，抢在前面会把「场馆浏览」这个主任务挤没，
+ * 但直接删掉又会让存量用户没法退订。
+ */
+const cityLegacyOpen = ref(false);
 
 /** 场馆订阅上限（与后端 service.MaxVenueSubscriptions 保持一致） */
 const VENUE_LIMIT = 20;
@@ -550,7 +595,18 @@ function onPickVenueCity() {
   cityPickerVisible.value = true;
 }
 
-/** 选好城市 → 拉该城市的场馆列表 */
+/**
+ * 点场馆行 → 进场馆详情页。
+ *
+ * 订阅的决定权交给详情页：那里能看到该场馆的活动、地址、别名，
+ * 也能看到「订阅场馆」的明确按钮（列表里的按钮只有一个小图标，
+ * 用户分不清是收藏还是订阅）。
+ */
+function onOpenVenue({ venue }: { venue: VenuePlace }) {
+  uni.navigateTo({ url: `/pages/place/detail?id=${venue.id}` });
+}
+
+/** 选好城市 → 拉该城市的场馆列表（第一页） */
 async function onCityPickedForVenue(city: { name: string; id: string }) {
   cityPickerVisible.value = false;
   if (!city.id) {
@@ -558,19 +614,48 @@ async function onCityPickedForVenue(city: { name: string; id: string }) {
     return;
   }
   venueCity.value = { id: city.id, name: city.name };
-  venueLoading.value = true;
+  // 换城市要重置分页：否则上一座城市的 page 会接着往下翻
+  venuePage.value = 1;
+  venueTotal.value = 0;
+  venueList.value = [];
+  await loadVenuePage(1);
+}
+
+/**
+ * 拉一页场馆。
+ *
+ * ⚠️ 场馆数量是**城市级**的：北京就有 76 个，一次取 50 个就够不到剩下的 ——
+ * 早期版本只请求 page=1 & page_size=50，用户在列表底部看到的是「没了」，
+ * 后面 26 个场馆根本浏览不到。现在做成触底自动加载（无感滚动）。
+ */
+async function loadVenuePage(p: number) {
+  if (venueLoading.value) return;
+  if (p === 1) venueLoading.value = true;
+  else venueLoadingMore.value = true;
   try {
-    const res = await venueApi.listByCity(city.id, 1, 50);
-    venueList.value = res?.list || [];
+    const res = await venueApi.listByCity(venueCity.value.id, p, VENUE_PAGE_SIZE);
+    const list = res?.list || [];
+    venueList.value = p === 1 ? list : venueList.value.concat(list);
+    venueTotal.value = res?.total ?? venueList.value.length;
+    venuePage.value = p;
   } catch (e) {
-    venueList.value = [];
+    if (p === 1) venueList.value = [];
     uni.showToast({
       title: (e as Error)?.message || "场馆加载失败",
       icon: "none",
     });
   } finally {
     venueLoading.value = false;
+    venueLoadingMore.value = false;
   }
+}
+
+/** 触底 → 继续加载下一页（无感滚动：列表底部接上，不用手动点） */
+function loadMoreVenues() {
+  if (venueLoading.value) return;
+  if (venueList.value.length >= venueTotal.value) return;
+  if (!venueCity.value.id) return;
+  void loadVenuePage(venuePage.value + 1);
 }
 
 /** 订阅场馆 */
@@ -608,6 +693,11 @@ function onUnsubscribeVenue({ venue }: { venue: VenuePlace }) {
 }
 
 function onScrollLower() {
+  // 场馆 tab 触底 → 继续加载下一页（无感滚动）
+  if (activeTab.value === 2) {
+    loadMoreVenues();
+    return;
+  }
   // 活动 tab 触底翻页（仅活动需要翻页，偶像/城市都是一次性列表）
   if (activeTab.value !== 1) return;
   const lk = eventStatus.value === "ongoing" ? "eventsOngoing" : "eventsExpired";
@@ -928,6 +1018,31 @@ function voToEvent(vo: EventCardVO): Event {
 .section-all {
   font-size: 26rpx;
   color: rgba(35, 34, 39, 1);
+}
+
+/* 存量城市订阅（老入口）：收在「场馆」tab 最下面，默认收起 */
+.city-legacy {
+  margin: 24rpx 30rpx 40rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(236, 236, 236, 1);
+  padding: 8rpx 24rpx 24rpx;
+}
+.city-legacy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 0;
+}
+.city-legacy-head--hover {
+  opacity: 0.7;
+}
+.city-legacy-title {
+  font-size: 26rpx;
+  color: #666;
+}
+.city-legacy-body {
+  padding-top: 4rpx;
 }
 
 .empty {
