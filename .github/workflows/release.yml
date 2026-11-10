@@ -37,6 +37,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.version || github.ref_name }}
       APP_API_BASE_URL: https://api.idoltrail.com/api/v1
       HBUILDERX_VERSION: 5.34.2026102909
+      NODE_PATH: ${{ github.workspace }}/node_modules
       EXPECTED_APK_CERT_SHA256: 21:3D:55:6F:54:FF:7F:D3:05:0B:95:1D:AF:97:8D:22:8A:AE:65:27:55:98:92:AF:B7:5A:D9:BE:D7:A0:76:99
 
     steps:
@@ -57,7 +58,9 @@ jobs:
           cache: npm
 
       - name: 安装依赖
-        run: npm ci
+        run: |
+          npm ci
+          node -e "console.log(require.resolve('@dcloudio/uni-uts-v1/package.json'))"
 
       - name: 从 tag 写入 App 版本
         id: version
